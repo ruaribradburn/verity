@@ -1,7 +1,6 @@
 import { LiveVoiceSession, type LiveInlineCard, type LiveSessionManager } from "@packages/client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ensureLiveSessionMediaPolicy } from "./media-permissions";
-import { formatSourceTag } from "./research/source-classify";
 import type { ResearchEvent, ResearchComplete } from "./research/types";
 
 const apiOrigin =
@@ -33,6 +32,8 @@ export default function App() {
   const [voiceResearch, setVoiceResearch] = useState<VoiceResearchStatus>({ phase: "idle" });
   const voiceResearchRef = useRef(voiceResearch);
   voiceResearchRef.current = voiceResearch;
+  /** Capture what Gemini said in its immediate (grounding-only) response for cross-referencing. */
+  const immediateResponseRef = useRef("");
 
   useEffect(() => {
     if (typeof chrome === "undefined" || !chrome.tabs?.query) return;
@@ -75,7 +76,10 @@ export default function App() {
           break;
 
         case "research:complete":
-          injectResearchResults(message);
+          // Snapshot what Gemini said before seeing the deep research.
+          immediateResponseRef.current =
+            managerRef.current?.getSnapshot().partialAssistantTranscript.trim() ?? "";
+          void injectResearchResults(message);
           setVoiceResearch((prev) =>
             prev.phase === "researching"
               ? {
@@ -108,24 +112,64 @@ export default function App() {
     return () => chrome.runtime.onMessage.removeListener(handleResearchEvent);
   }, []);
 
-  function injectResearchResults(event: ResearchComplete) {
+  async function injectResearchResults(event: ResearchComplete) {
     const manager = managerRef.current;
     if (!manager || event.contexts.length === 0) return;
 
+    try {
+      // Try the full orchestrated pipeline
+      const response = await fetch(`${apiOrigin}/analyze/full`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          pages: event.contexts,
+          userPrompt: voiceResearchRef.current.phase === "researching" ? voiceResearchRef.current.query : "",
+          mode: "analyst",
+        }),
+      });
+
+      const result = await response.json();
+
+      if (result.ok && result.briefing) {
+        const briefing = result.briefing;
+        const formatted = [
+          `[Verity Analysis — ${event.contexts.length} sources, ${result.agents?.length ?? 3} agents]`,
+          "",
+          `**Summary:** ${briefing.summary}`,
+          "",
+          `**Framing & Bias:** ${briefing.framingAndBias}`,
+          "",
+          `**Evidence & Credibility:** ${briefing.evidenceAndCredibility}`,
+          "",
+          `**Key Entities:** ${briefing.entitiesAndRelationships}`,
+          "",
+          `**Missing Context:** ${briefing.missingContextAndOpposing}`,
+          "",
+          `**What to Read Next:** ${briefing.whatToReadNext}`,
+          "",
+          `Confidence: ${briefing.metadata?.confidence ?? "medium"}. Synthesize this into your response — cite specific findings, do not repeat raw text.`,
+        ].join("\n");
+
+        manager.sendContext(formatted);
+        return;
+      }
+    } catch {
+      // Fall through to fallback
+    }
+
+    // Fallback: inject raw page snippets (original behavior)
     const summary = event.contexts
       .map((ctx, i) => {
-        const tag = formatSourceTag(i, ctx.title, ctx.url, ctx.siteName);
+        const source = ctx.siteName ?? tryHostname(ctx.url);
         const snippet = ctx.contentText.slice(0, 800);
-        return `${tag}\n${snippet}`;
+        return `[Source ${i + 1}: ${ctx.title ?? "Untitled"} — ${source}]\n${snippet}`;
       })
       .join("\n\n");
 
     manager.sendContext(
       `[Verity Research — ${event.contexts.length} sources collected]\n\n${summary}\n\n` +
         `Use these sources to give a more grounded, evidence-aware response to the user's last question. ` +
-        `Each source is tagged with its type (wire service, public broadcaster, social discussion, video, tabloid, state-affiliated, etc.). ` +
-        `Weight wire services and public broadcasters more heavily than tabloids or social posts. ` +
-        `Flag state-affiliated sources explicitly. Cite sources by number when relevant. Synthesize — do not repeat raw text.`,
+        `Cite sources by number when relevant. Do not repeat the raw text back — synthesize.`,
     );
   }
 
@@ -235,4 +279,12 @@ function dedupeRecentSources(items: string[]) {
 function formatResearchSourceLabel(title: string | null | undefined, source: string) {
   const compactTitle = title?.trim() || "Untitled";
   return `${compactTitle} / ${source}`;
+}
+
+function tryHostname(url: string): string {
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return url;
+  }
 }

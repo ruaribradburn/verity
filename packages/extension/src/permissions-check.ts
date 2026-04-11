@@ -1,8 +1,14 @@
 /**
  * Comprehensive permissions checker for the Verity extension.
  *
- * Checks both Chrome extension permissions and browser-level media policies.
- * Returns a structured status so the UI can show exactly what's missing.
+ * Manifest-declared permissions are always granted — we only need to verify
+ * they're present (they will be). The real gates are:
+ *   1. audioCapture at the Chrome extension level (can be toggled off by users)
+ *   2. Browser-level microphone policy (getUserMedia grant)
+ *
+ * We NEVER call chrome.permissions.request() for permissions already in the
+ * manifest — Chrome throws "Only permissions specified in the manifest may be
+ * requested" for required (non-optional) permissions.
  */
 
 export interface PermissionStatus {
@@ -21,58 +27,51 @@ export interface PermissionItem {
   grantable: boolean;
 }
 
-/** Core extension permissions (non-audio). */
-const CORE_EXTENSION_PERMISSIONS: chrome.permissions.Permissions = {
-  permissions: ["sidePanel", "storage", "tabs", "scripting", "activeTab", "search", "alarms", "tabGroups"],
-};
-
-/** Audio capture is checked separately — it's the one that often fails at Chrome level. */
-const AUDIO_CAPTURE_PERMISSION = {
-  permissions: ["audioCapture"],
-} as unknown as chrome.permissions.Permissions;
-
-/** Host permissions Verity needs for the local API. */
-const REQUIRED_HOST_PERMISSIONS: chrome.permissions.Permissions = {
-  origins: ["http://127.0.0.1:3001/*", "http://localhost:3001/*"],
-};
-
 /**
  * Check all permissions Verity needs and return a structured status.
  */
 export async function checkAllPermissions(): Promise<PermissionStatus> {
   const items: PermissionItem[] = [];
 
-  // 1. Core extension permissions
-  const hasCorePerms = await chromePermissionsContains(CORE_EXTENSION_PERMISSIONS);
+  // 1. Core manifest permissions — these are always present if the manifest is correct.
+  //    We verify with contains() but never request() them.
+  const hasCorePerms = await chromePermissionsContains({
+    permissions: ["sidePanel", "storage", "tabs", "scripting", "activeTab", "search", "alarms", "tabGroups"],
+  });
   items.push({
     id: "extension",
     label: "Extension core permissions",
     description: "Side panel, tabs, storage, scripting, and other core capabilities.",
     granted: hasCorePerms,
-    grantable: true,
+    grantable: false, // manifest-declared, can't be requested at runtime
   });
 
-  // 2. Audio capture — the one Chrome often blocks at the extension level
-  const hasAudioCapture = await chromePermissionsContains(AUDIO_CAPTURE_PERMISSION);
+  // 2. audioCapture — declared in the manifest but Chrome lets users disable it
+  //    in chrome://extensions → Details. We can only check, not re-request.
+  const hasAudioCapture = await chromePermissionsContains({
+    permissions: ["audioCapture"],
+  } as unknown as chrome.permissions.Permissions);
   items.push({
     id: "audioCapture",
     label: "Record audio (Chrome extension)",
-    description: "Chrome-level audio capture permission. If denied, open chrome://extensions \u2192 Verity \u2192 Details and enable it.",
+    description: "Chrome-level audio capture. If missing, open chrome://extensions \u2192 Verity \u2192 Details and enable it.",
     granted: hasAudioCapture,
-    grantable: true,
+    grantable: false, // must be enabled in chrome://extensions, not requestable
   });
 
-  // 3. Host permissions (API access)
-  const hasHostPerms = await chromePermissionsContains(REQUIRED_HOST_PERMISSIONS);
+  // 3. Host permissions — declared in manifest, just verify.
+  const hasHostPerms = await chromePermissionsContains({
+    origins: ["http://127.0.0.1:3001/*", "http://localhost:3001/*"],
+  });
   items.push({
     id: "host",
     label: "Local API access",
     description: "Access to the Verity API running on localhost.",
     granted: hasHostPerms,
-    grantable: true,
+    grantable: false,
   });
 
-  // 4. Microphone browser policy (separate from extension audioCapture)
+  // 4. Microphone browser policy — this IS grantable via getUserMedia prompt.
   const micStatus = await queryBrowserPermission("microphone" as PermissionName);
   items.push({
     id: "microphone",
@@ -89,33 +88,23 @@ export async function checkAllPermissions(): Promise<PermissionStatus> {
 }
 
 /**
- * Attempt to grant all missing permissions. Returns updated status.
+ * Attempt to grant missing permissions that can be granted programmatically.
+ * Only microphone access can actually be requested at runtime — manifest
+ * permissions and audioCapture must be fixed by the user in Chrome settings.
  */
 export async function requestMissingPermissions(current: PermissionStatus): Promise<PermissionStatus> {
   for (const item of current.items) {
-    if (item.granted) continue;
+    if (item.granted || !item.grantable) continue;
 
-    switch (item.id) {
-      case "extension":
-        await requestChromePermissions(CORE_EXTENSION_PERMISSIONS);
-        break;
-      case "audioCapture":
-        await requestChromePermissions(AUDIO_CAPTURE_PERMISSION);
-        break;
-      case "host":
-        await requestChromePermissions(REQUIRED_HOST_PERMISSIONS);
-        break;
-      case "microphone":
-        await requestMicrophoneAccess();
-        break;
+    if (item.id === "microphone") {
+      await requestMicrophoneAccess();
     }
   }
 
-  // Re-check everything after granting
   return checkAllPermissions();
 }
 
-/** Grant microphone access by doing a getUserMedia call. */
+/** Grant microphone access by triggering a getUserMedia prompt. */
 async function requestMicrophoneAccess(): Promise<void> {
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -129,13 +118,6 @@ async function chromePermissionsContains(perms: chrome.permissions.Permissions):
   if (typeof chrome === "undefined" || !chrome.permissions?.contains) return false;
   return new Promise<boolean>((resolve) => {
     chrome.permissions.contains(perms, (has) => resolve(has === true));
-  });
-}
-
-async function requestChromePermissions(perms: chrome.permissions.Permissions): Promise<boolean> {
-  if (typeof chrome === "undefined" || !chrome.permissions?.request) return false;
-  return new Promise<boolean>((resolve) => {
-    chrome.permissions.request(perms, (granted) => resolve(granted === true));
   });
 }
 

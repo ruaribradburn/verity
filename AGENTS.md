@@ -27,6 +27,19 @@ The extension path is deliberately thin:
 - `packages/extension/src/App.tsx` mounts `LiveVoiceSession` from `@packages/client`
 - `packages/extension/src/background.ts` only configures side-panel behavior
 
+## Multi-Agent Pipeline
+
+The server-side analysis pipeline at `packages/api` implements PDR §6.2:
+
+- **Orchestrator** (`src/orchestrator.ts`): Coordinates extraction → analysis → synthesis with timeouts and partial-result fallback. Entry point: `POST /analyze/full`.
+- **Extraction agent** (`src/agents/extraction.ts`): Gemini-backed NER and claim extraction from page content.
+- **Analysis agent** (`src/agents/analysis.ts`): Bias detection and credibility scoring using extracted claims and entities.
+- **Synthesis agent** (`src/agents/synthesis.ts`): Produces a 6-section depolarized briefing (PDR §5.3) from the full analysis context.
+
+Shared types for the pipeline (`Claim`, `Entity`, `BiasSignal`, `CredibilityScore`, `AnalysisContext`, `Briefing`, `OrchestrationRequest/Response`) are defined in `packages/core/index.ts`.
+
+The extension wires voice turns → client-side research → `POST /analyze/full` → briefing injection into the Gemini Live session via `sendContext()`.
+
 ## Conventions
 
 - Keep cross-boundary types in `packages/core` first. If a payload is shared between browser and server, define it there instead of duplicating shapes.

@@ -27,10 +27,12 @@ import {
   type HealthResponse,
   type LiveConfigHttpResponse,
   type LiveTokenHttpResponse,
+  type OrchestrationRequest,
 } from "@packages/core";
 import { runExtractionAgent } from "./agents/extraction";
 import { runAnalysisAgent } from "./agents/analysis";
 import { runSynthesisAgent } from "./agents/synthesis";
+import { runOrchestration } from "./orchestrator";
 
 const URL_RESOLUTION_MODEL = "gemini-2.5-flash";
 const TRAFILATURA_SCRIPT_PATH = fileURLToPath(new URL("../../../scripts/trafilatura_extract.py", import.meta.url));
@@ -598,6 +600,26 @@ app.post("/analyze/synthesize", async (c) => {
   }
 
   const result = await runSynthesisAgent(geminiApiKey, payload.context, payload.userPrompt ?? "");
+  return c.json(result);
+});
+
+app.post("/analyze/full", async (c) => {
+  if (!geminiApiKey) {
+    return c.json({ ok: false, error: "GEMINI_API_KEY is required for orchestrated analysis." }, 503);
+  }
+
+  let payload: OrchestrationRequest;
+  try {
+    payload = await c.req.json();
+  } catch {
+    return c.json({ ok: false, error: "Invalid JSON body." }, 400);
+  }
+
+  if (!Array.isArray(payload.pages) || payload.pages.length === 0) {
+    return c.json({ ok: false, error: "At least one page is required." }, 400);
+  }
+
+  const result = await runOrchestration(geminiApiKey, payload);
   return c.json(result);
 });
 

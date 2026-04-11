@@ -74,7 +74,9 @@ function PermissionsPage({
   onRefresh: () => void;
 }) {
   const missing = status.items.filter((i) => !i.granted);
-  const hasUngrantable = missing.some((i) => !i.grantable);
+  const hasGrantable = missing.some((i) => i.grantable);
+  const needsAudioCapture = missing.some((i) => i.id === "audioCapture");
+  const micDenied = missing.some((i) => i.id === "microphone" && !i.grantable);
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-[#f4efe6] p-6">
@@ -84,7 +86,10 @@ function PermissionsPage({
           Permissions required
         </h1>
         <p className="mt-2 text-sm leading-6 text-stone-600">
-          Verity needs the following permissions to work. Grant them below to continue.
+          Verity needs the following permissions to work.
+          {hasGrantable
+            ? " Grant what you can below, then follow any manual steps."
+            : " Follow the instructions below, then click Refresh."}
         </p>
 
         <ul className="mt-6 space-y-3">
@@ -93,47 +98,50 @@ function PermissionsPage({
           ))}
         </ul>
 
-        {hasUngrantable && (
-          <div className="mt-5 rounded-xl bg-red-50 px-4 py-3">
-            <p className="text-xs leading-5 text-red-800">
-              Some permissions were denied at the browser level. Open{" "}
-              <strong>chrome://settings/content/microphone</strong> to allow Verity, then come back.
+        {needsAudioCapture && (
+          <div className="mt-5 rounded-xl bg-amber-50 px-4 py-3">
+            <p className="text-xs font-medium text-amber-900">Chrome audio capture required</p>
+            <p className="mt-1 text-xs leading-5 text-amber-800">
+              Go to <strong>chrome://extensions</strong>, find <strong>Verity</strong>, click{" "}
+              <strong>Details</strong>, and make sure <strong>&ldquo;Record audio&rdquo;</strong> is
+              enabled. Then click <strong>Refresh</strong> below.
             </p>
           </div>
         )}
 
-        {missing.some((i) => i.id === "audioCapture") && (
-          <div className="mt-5 rounded-xl bg-amber-50 px-4 py-3">
-            <p className="text-xs font-medium text-amber-900">Chrome audio capture required</p>
-            <p className="mt-1 text-xs leading-5 text-amber-800">
-              If the button above doesn&apos;t work, go to{" "}
-              <strong>chrome://extensions</strong>, find <strong>Verity</strong>, click{" "}
-              <strong>Details</strong>, and make sure <strong>&ldquo;Record audio&rdquo;</strong> is enabled.
-              Then click Refresh.
+        {micDenied && (
+          <div className="mt-5 rounded-xl bg-red-50 px-4 py-3">
+            <p className="text-xs leading-5 text-red-800">
+              Microphone access was denied at the browser level. Open{" "}
+              <strong>chrome://settings/content/microphone</strong>, allow Verity, then click
+              Refresh.
             </p>
           </div>
         )}
 
         <div className="mt-6 flex gap-3">
-          <button
-            type="button"
-            onClick={onGrant}
-            disabled={granting}
-            className="flex-1 rounded-full bg-stone-950 px-5 py-3 text-sm font-medium text-stone-50 transition hover:bg-amber-700 disabled:cursor-wait disabled:opacity-70"
-          >
-            {granting ? "Granting..." : "Grant all permissions"}
-          </button>
+          {hasGrantable && (
+            <button
+              type="button"
+              onClick={onGrant}
+              disabled={granting}
+              className="flex-1 rounded-full bg-stone-950 px-5 py-3 text-sm font-medium text-stone-50 transition hover:bg-amber-700 disabled:cursor-wait disabled:opacity-70"
+            >
+              {granting ? "Granting..." : "Grant microphone access"}
+            </button>
+          )}
           <button
             type="button"
             onClick={onRefresh}
-            className="rounded-full border border-stone-300 bg-white px-4 py-3 text-sm font-medium text-stone-700 transition hover:border-stone-900 hover:text-stone-900"
+            className={`rounded-full border border-stone-300 bg-white px-5 py-3 text-sm font-medium text-stone-700 transition hover:border-stone-900 hover:text-stone-900 ${hasGrantable ? "" : "flex-1"}`}
           >
             Refresh
           </button>
         </div>
 
         <p className="mt-4 text-center text-xs text-stone-400">
-          Verity only uses these permissions for voice sessions and page research. Nothing leaves your device except Gemini API calls.
+          Verity only uses these permissions for voice sessions and page research. Nothing leaves
+          your device except Gemini API calls.
         </p>
       </div>
     </div>
