@@ -14,7 +14,13 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 let cancelResearch: (() => void) | null = null;
 
 chrome.runtime.onMessage.addListener(
-  (message: ResearchRequest, _sender, sendResponse) => {
+  (message: ResearchRequest | { type: "verity:mic-granted" }, _sender, sendResponse) => {
+    if (message.type === "verity:mic-granted") {
+      void chrome.storage.local.set({ verityMicPrimedAt: Date.now() });
+      sendResponse({ ok: true });
+      return false;
+    }
+
     if (message.type === "research:cancel") {
       console.log("[verity/bg] Research cancelled by user");
       cancelResearch?.();

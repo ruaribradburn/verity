@@ -28,6 +28,8 @@ export type LiveSessionManager = {
   sendAudioChunk(base64Pcm16: string): void;
   sendAudioStreamEnd(): void;
   sendVideoFrame(base64Jpeg: string): void;
+  /** Inject context (e.g. research results) into the session as a user turn without triggering a response. */
+  sendContext(text: string): void;
   close(): void;
   getSnapshot(): LiveSessionSnapshot;
 };
@@ -226,6 +228,8 @@ export function createLiveSessionManager(options: ManagerOptions): LiveSessionMa
           },
           onclose: () => {
             console.log("[verity/live] Gemini Live WebSocket closed");
+            queue.clear();
+            session = null;
             state = "disconnected";
             emitSnapshot();
           },
@@ -258,6 +262,19 @@ export function createLiveSessionManager(options: ManagerOptions): LiveSessionMa
       partialAssistantTranscript = "";
       session.sendRealtimeInput({ text });
       emitSnapshot();
+    },
+
+    sendContext(text) {
+      if (!session) return;
+      session.sendClientContent({
+        turns: [
+          {
+            role: "user",
+            parts: [{ text }],
+          },
+        ],
+        turnComplete: false,
+      });
     },
 
     sendAudioChunk(base64Pcm16) {

@@ -26,6 +26,15 @@ export type LiveVoiceSessionProps = {
   /** Prefill session setup (e.g. Chrome extension: active tab URL for reliable page hydration). */
   initialPageUrl?: string;
   initialPageTitle?: string;
+  /**
+   * Run before screen share + microphone (e.g. Chrome extension: enforce `chrome.permissions`
+   * and mic site policy). Should throw if the user must fix settings before capture APIs run.
+   */
+  prepareLiveMediaCapture?: () => Promise<void>;
+  /** Called when a user voice turn completes with the transcribed text. */
+  onUserTurnComplete?: (text: string) => void;
+  /** Called with the live session manager once connected, so the host can inject context. */
+  onManagerReady?: (manager: LiveSessionManager) => void;
 };
 
 type TranscriptEntry = {
@@ -49,6 +58,9 @@ export function LiveVoiceSession({
   apiOrigin,
   initialPageUrl,
   initialPageTitle,
+  prepareLiveMediaCapture,
+  onUserTurnComplete,
+  onManagerReady,
 }: LiveVoiceSessionProps) {
   const base = apiOrigin.replace(/\/$/, "");
 
@@ -125,13 +137,14 @@ export function LiveVoiceSession({
     }
 
     lastTurnCountRef.current = snapshot.turnCompleteCount;
+    const userText = snapshot.partialUserTranscript.trim();
     setTranscript((current) => {
       const next = [...current];
-      if (snapshot.partialUserTranscript.trim()) {
+      if (userText) {
         next.push({
           id: `user-${snapshot.turnCompleteCount}`,
           role: "user",
-          text: snapshot.partialUserTranscript.trim(),
+          text: userText,
           meta: "voice",
         });
       }
@@ -145,6 +158,9 @@ export function LiveVoiceSession({
       }
       return next;
     });
+    if (userText && onUserTurnComplete) {
+      onUserTurnComplete(userText);
+    }
   }, [snapshot.partialAssistantTranscript, snapshot.partialUserTranscript, snapshot.turnCompleteCount]);
 
   useEffect(() => {
@@ -159,6 +175,8 @@ export function LiveVoiceSession({
     setStarting(true);
     let microphoneStream: MediaStream | null = null;
     try {
+      await prepareLiveMediaCapture?.();
+
       const manager = createLiveSessionManager({
         apiOrigin: base,
         onSnapshot: (next) => {
@@ -196,6 +214,7 @@ export function LiveVoiceSession({
       if (hydrated.page.title) {
         setPageTitle(hydrated.page.title);
       }
+      onManagerReady?.(manager);
 
       setTranscript((current) => [
         ...current,
