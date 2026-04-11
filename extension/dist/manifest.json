@@ -1,0 +1,17 @@
+{
+  "manifest_version": 3,
+  "name": "Verity",
+  "version": "0.1.0",
+  "description": "Voice-first page analyst — live Gemini session from the side panel.",
+  "action": {
+    "default_title": "Open Verity"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "permissions": ["sidePanel", "storage", "tabs", "scripting", "activeTab"],
+  "host_permissions": ["http://127.0.0.1:3001/*", "http://localhost:3001/*"]
+}
