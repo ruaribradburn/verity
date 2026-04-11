@@ -242,8 +242,8 @@ export default function Home() {
   }
 
   return (
-    <main className="min-h-screen bg-[#f4efe6] text-stone-900">
-      <div className="mx-auto flex min-h-screen max-w-5xl flex-col px-4 py-6 sm:px-6">
+    <main className="h-screen overflow-hidden bg-[#f4efe6] text-stone-900">
+      <div className="mx-auto flex h-full max-w-5xl flex-col px-4 py-6 sm:px-6">
         <header className="rounded-[2rem] border border-black/8 bg-white px-6 py-6 shadow-[0_18px_60px_rgba(0,0,0,0.06)]">
           <div className="flex flex-col gap-5 md:flex-row md:items-end md:justify-between">
             <div className="space-y-3">
@@ -286,13 +286,13 @@ export default function Home() {
           </div>
         </header>
 
-        <section className="mt-4 grid flex-1 gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
-          <div className="flex min-h-[70vh] flex-col rounded-[2rem] border border-black/8 bg-white shadow-[0_18px_60px_rgba(0,0,0,0.06)]">
+        <section className="mt-4 grid min-h-0 flex-1 gap-4 overflow-hidden lg:grid-cols-[minmax(0,1fr)_280px]">
+          <div className="flex min-h-0 flex-col overflow-hidden rounded-[2rem] border border-black/8 bg-white shadow-[0_18px_60px_rgba(0,0,0,0.06)]">
             <div className="border-b border-stone-200 px-5 py-4">
               <p className="text-xs uppercase tracking-[0.28em] text-amber-700">Transcript</p>
             </div>
 
-            <div className="flex-1 space-y-4 overflow-y-auto px-4 py-5 sm:px-5">
+            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-5 sm:px-5">
               {transcript.map((entry) => (
                 <TranscriptEntryView key={entry.id} entry={entry} />
               ))}
@@ -346,7 +346,7 @@ export default function Home() {
             </div>
           </div>
 
-          <aside className="flex flex-col gap-4 rounded-[2rem] border border-black/8 bg-white p-4 shadow-[0_18px_60px_rgba(0,0,0,0.06)]">
+          <aside className="flex min-h-0 flex-col gap-4 overflow-y-auto rounded-[2rem] border border-black/8 bg-white p-4 shadow-[0_18px_60px_rgba(0,0,0,0.06)]">
             <section className="space-y-3">
               <p className="text-xs uppercase tracking-[0.28em] text-amber-700">Page hint</p>
               <input
@@ -407,10 +407,13 @@ function formatStartSessionError(error: unknown) {
 }
 
 function TranscriptEntryView({ entry }: { entry: TranscriptEntry }) {
+  const [isOpen, setIsOpen] = useState(entry.role !== "system");
   const tone =
     entry.role === "user"
       ? "mr-auto bg-[#182435] text-[#d9e3f2]"
-      : "ml-auto bg-[#123329] text-[#e5f1ea]";
+      : entry.role === "assistant"
+        ? "ml-auto bg-[#123329] text-[#e5f1ea]"
+        : "mr-auto bg-[#2a2412] text-[#f4edd4]";
 
   const width = entry.role === "system" ? "max-w-xl" : "max-w-3xl";
 
@@ -420,9 +423,23 @@ function TranscriptEntryView({ entry }: { entry: TranscriptEntry }) {
         <span className="text-[11px] font-semibold uppercase tracking-[0.24em] opacity-75">
           {entry.role}
         </span>
-        {entry.meta ? <span className="text-[11px] opacity-70">{entry.meta}</span> : null}
+        <div className="flex items-center gap-3">
+          {entry.meta ? <span className="text-[11px] opacity-70">{entry.meta}</span> : null}
+          {entry.role === "system" ? (
+            <button
+              type="button"
+              onClick={() => setIsOpen((current) => !current)}
+              className="text-[11px] font-semibold uppercase tracking-[0.2em] opacity-75"
+              aria-expanded={isOpen}
+            >
+              {isOpen ? "Hide" : "Show"}
+            </button>
+          ) : null}
+        </div>
       </div>
-      <p className="mt-2 whitespace-pre-wrap text-sm leading-7">{entry.text}</p>
+      {entry.role !== "system" || isOpen ? (
+        <p className="mt-2 whitespace-pre-wrap text-sm leading-7">{entry.text}</p>
+      ) : null}
     </article>
   );
 }
