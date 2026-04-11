@@ -34,6 +34,7 @@ export default function App() {
   voiceResearchRef.current = voiceResearch;
   /** Capture what Gemini said in its immediate (grounding-only) response for cross-referencing. */
   const immediateResponseRef = useRef("");
+  const pendingToolCallRef = useRef<{ id: string; name: string } | null>(null);
 
   useEffect(() => {
     if (typeof chrome === "undefined" || !chrome.tabs?.query) return;
@@ -171,6 +172,17 @@ export default function App() {
         ].join("\n");
 
         manager.sendContext(formatted);
+
+        // Send tool response back to Gemini so it knows research is complete
+        const pending = pendingToolCallRef.current;
+        if (pending && manager) {
+          manager.sendToolResponse(pending.id, pending.name, {
+            status: "complete",
+            sources_found: event.contexts.length,
+            summary: briefing.summary.slice(0, 500),
+          });
+          pendingToolCallRef.current = null;
+        }
         return;
       }
     } catch {
@@ -194,29 +206,73 @@ export default function App() {
         `If these sources contradict something you said, correct it explicitly. ` +
         `Cite sources by number. Do not repeat raw text.`,
     );
+
+    const pending = pendingToolCallRef.current;
+    if (pending && manager) {
+      manager.sendToolResponse(pending.id, pending.name, {
+        status: "complete",
+        sources_found: event.contexts.length,
+        summary: `Found ${event.contexts.length} sources.`,
+      });
+      pendingToolCallRef.current = null;
+    }
   }
 
-  const handleUserTurnComplete = useCallback((text: string) => {
-    // Don't trigger research if one is already running.
-    if (voiceResearchRef.current.phase === "researching") return;
-    // Only research substantial queries (not short acknowledgements).
-    if (text.length < 15) return;
+  const handleToolCall = useCallback(
+    (call: { id: string; name: string; args: Record<string, unknown> }, manager: LiveSessionManager) => {
+      // Don't stack concurrent research
+      if (voiceResearchRef.current.phase === "researching") {
+        manager.sendToolResponse(call.id, call.name, {
+          error: "Research is already in progress. Please wait for the current research to complete.",
+        });
+        return;
+      }
 
-    setVoiceResearch({
-      phase: "researching",
-      query: text,
-      pagesRead: 0,
-      totalPages: 0,
-      status: "Starting research...",
-      recentSources: [],
-    });
+      // Build search query based on which function Gemini called
+      let query: string;
+      switch (call.name) {
+        case "research_topic":
+          query = String(call.args.query ?? "");
+          break;
+        case "fact_check_claim":
+          query = `fact check: ${String(call.args.claim ?? "")}`;
+          break;
+        case "find_opposing_views":
+          query = `${String(call.args.topic ?? "")} opposing view OR criticism OR counterargument`;
+          break;
+        case "research_entity":
+          query = `${String(call.args.entity_name ?? "")} ${String(call.args.context ?? "")}`.trim();
+          break;
+        default:
+          manager.sendToolResponse(call.id, call.name, { error: `Unknown function: ${call.name}` });
+          return;
+      }
 
-    chrome.runtime.sendMessage({
-      type: "research:start",
-      source: "query",
-      query: text,
-    });
-  }, []);
+      if (!query.trim()) {
+        manager.sendToolResponse(call.id, call.name, { error: "Empty query — cannot research." });
+        return;
+      }
+
+      // Store the call info so we can send the response when research completes
+      pendingToolCallRef.current = { id: call.id, name: call.name };
+
+      setVoiceResearch({
+        phase: "researching",
+        query,
+        pagesRead: 0,
+        totalPages: 0,
+        status: `Gemini requested: ${call.name}`,
+        recentSources: [],
+      });
+
+      chrome.runtime.sendMessage({
+        type: "research:start",
+        source: "query",
+        query,
+      });
+    },
+    [],
+  );
 
   const handleManagerReady = useCallback((manager: LiveSessionManager) => {
     managerRef.current = manager;
@@ -231,7 +287,7 @@ export default function App() {
         initialPageUrl={tabHint?.url}
         initialPageTitle={tabHint?.title}
         prepareLiveMediaCapture={ensureLiveSessionMediaPolicy}
-        onUserTurnComplete={handleUserTurnComplete}
+        onToolCall={handleToolCall}
         onManagerReady={handleManagerReady}
         inlineCard={researchInlineCard}
       />

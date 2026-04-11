@@ -75,5 +75,6 @@ The extension wires voice turns → client-side research → `POST /analyze/full
 
 ## Known Mismatches
 
-- `README.md` and `ARCHITECTURE.md` still describe a planned top-level `src/` layout. The actual code is package-based.
+- `README.md` may still mention an older top-level `src/` layout. The actual code is package-based; see `docs/architecture.md`.
+- Root `ARCHITECTURE.md` is a **deprecated** snapshot of the old `src/` layout; it begins with a pointer to `docs/architecture.md` and `docs/PDR.md` (section 13) for current layout and **implementation status (done vs remaining)**.
 - There is an older workflow artifact at `dev/AGENTS.md`; use this root `AGENTS.md` as the lightweight navigation index for the live repository state.

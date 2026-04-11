@@ -1,4 +1,4 @@
-import { GoogleGenAI, Modality, type LiveServerMessage } from "@google/genai";
+import { GoogleGenAI, Modality, FunctionResponse, type LiveServerMessage } from "@google/genai";
 import {
   AsyncQueue,
   GEMINI_LIVE_API_VERSION,
@@ -6,6 +6,7 @@ import {
   accumulateTranscript,
   buildLiveSystemInstruction,
   createLiveConfigSummary,
+  createResearchToolDeclarations,
   type LiveTokenHttpResponse,
   type PageContext,
   type SessionState,
@@ -26,6 +27,8 @@ export type LiveSessionManager = {
   sendText(text: string): void;
   /** Injects background context (e.g. research results) without ending the user turn. */
   sendContext(text: string): void;
+  /** Send a function response back to Gemini after handling a tool call. */
+  sendToolResponse(id: string, name: string, response: Record<string, unknown>): void;
   sendAudioChunk(base64Pcm16: string): void;
   sendAudioStreamEnd(): void;
   sendVideoFrame(base64Jpeg: string): void;
@@ -37,6 +40,8 @@ type ManagerOptions = {
   apiOrigin: string;
   onSnapshot(snapshot: LiveSessionSnapshot): void;
   onAudioChunk?(pcm24KhzChunk: Uint8Array): void;
+  /** Called when Gemini requests a function call (e.g. research). Host should execute and call sendToolResponse. */
+  onToolCall?(call: { id: string; name: string; args: Record<string, unknown> }): void;
 };
 
 type Deferred<T> = {
@@ -61,6 +66,7 @@ type LiveSessionHandle = {
       | { video: { data: string; mimeType: string } }
       | { audioStreamEnd: true },
   ): void;
+  sendToolResponse(params: { functionResponses: FunctionResponse[] | FunctionResponse }): void;
 };
 
 export function createLiveSessionManager(options: ManagerOptions): LiveSessionManager {
@@ -180,6 +186,19 @@ export function createLiveSessionManager(options: ManagerOptions): LiveSessionMa
         turnCompleteCount += 1;
       }
 
+      if (msg.toolCall?.functionCalls) {
+        for (const fc of msg.toolCall.functionCalls) {
+          if (fc.name && fc.id && options.onToolCall) {
+            console.log(`[verity/live] Gemini requested tool call: ${fc.name}`, fc.args);
+            options.onToolCall({
+              id: fc.id,
+              name: fc.name,
+              args: fc.args ?? {},
+            });
+          }
+        }
+      }
+
       if (msg.goAway) {
         lastError = `Live session should reconnect soon. Server time left: ${msg.goAway.timeLeft}ms.`;
       }
@@ -208,7 +227,11 @@ export function createLiveSessionManager(options: ManagerOptions): LiveSessionMa
         model: GEMINI_LIVE_MODEL,
         config: {
           responseModalities: [Modality.AUDIO],
-          tools: [{ googleSearch: {} }],
+          tools: [
+            { googleSearch: {} },
+            // @ts-expect-error LiveFunctionDeclaration uses plain string types; the SDK expects its own Type enum but accepts strings at runtime.
+            { functionDeclarations: createResearchToolDeclarations() },
+          ],
           systemInstruction: {
             parts: [{ text: buildLiveSystemInstruction(page) }],
           },
@@ -314,6 +337,16 @@ export function createLiveSessionManager(options: ManagerOptions): LiveSessionMa
         turnComplete: false,
       });
       emitSnapshot();
+    },
+
+    sendToolResponse(id, name, response) {
+      if (!session) return;
+      console.log(`[verity/live] Sending tool response for: ${name}`);
+      const fr = new FunctionResponse();
+      fr.id = id;
+      fr.name = name;
+      fr.response = response;
+      session.sendToolResponse({ functionResponses: [fr] });
     },
 
     sendAudioChunk(base64Pcm16) {

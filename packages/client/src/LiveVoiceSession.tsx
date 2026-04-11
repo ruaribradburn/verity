@@ -33,6 +33,8 @@ export type LiveVoiceSessionProps = {
   prepareLiveMediaCapture?: () => Promise<void>;
   /** Called when a user voice turn completes with the transcribed text. */
   onUserTurnComplete?: (text: string) => void;
+  /** Called when Gemini requests a function call (research tools). Host handles execution and calls manager.sendToolResponse(). */
+  onToolCall?: (call: { id: string; name: string; args: Record<string, unknown> }, manager: LiveSessionManager) => void;
   /** Called with the live session manager once connected, so the host can inject context. */
   onManagerReady?: (manager: LiveSessionManager) => void;
   /** Optional inline agent-style card rendered directly inside the transcript flow. */
@@ -75,6 +77,7 @@ export function LiveVoiceSession({
   initialPageTitle,
   prepareLiveMediaCapture,
   onUserTurnComplete,
+  onToolCall,
   onManagerReady,
   inlineCard,
 }: LiveVoiceSessionProps) {
@@ -206,6 +209,11 @@ export function LiveVoiceSession({
           setSnapshot(next);
         },
         onAudioChunk: enqueueAssistantAudio,
+        onToolCall: (call) => {
+          if (onToolCall && managerRef.current) {
+            onToolCall(call, managerRef.current);
+          }
+        },
       });
       managerRef.current = manager;
 

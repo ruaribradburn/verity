@@ -310,6 +310,89 @@ export function createPageContextFunctionDeclaration(): LiveFunctionDeclaration 
   };
 }
 
+/** Research tool declarations for Gemini Live function calling. */
+export function createResearchToolDeclarations(): LiveFunctionDeclaration[] {
+  return [
+    {
+      name: "research_topic",
+      description:
+        "Search the web for information about a topic when you need more context, evidence, or opposing viewpoints to answer the user's question well. Use this when the page content alone is insufficient.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: {
+            type: "string",
+            description: "The search query to research. Be specific and analytical.",
+          },
+          reason: {
+            type: "string",
+            description:
+              "Brief explanation of why this research is needed (e.g. 'verify claim about X', 'find opposing views on Y').",
+          },
+        },
+        required: ["query", "reason"],
+      },
+    },
+    {
+      name: "fact_check_claim",
+      description:
+        "Fact-check a specific claim by searching for evidence that supports or contradicts it. Use when the user asks about accuracy or you detect a claim that needs verification.",
+      parameters: {
+        type: "object",
+        properties: {
+          claim: {
+            type: "string",
+            description: "The specific claim to fact-check, stated clearly.",
+          },
+          source_url: {
+            type: "string",
+            description: "The URL where this claim appeared, if known.",
+          },
+        },
+        required: ["claim"],
+      },
+    },
+    {
+      name: "find_opposing_views",
+      description:
+        "Find alternative perspectives, counterarguments, or opposing viewpoints on a topic. Use when the current page presents only one side or the user asks for balance.",
+      parameters: {
+        type: "object",
+        properties: {
+          topic: {
+            type: "string",
+            description: "The topic to find opposing views on.",
+          },
+          current_stance: {
+            type: "string",
+            description: "Brief description of the stance the current page takes.",
+          },
+        },
+        required: ["topic"],
+      },
+    },
+    {
+      name: "research_entity",
+      description:
+        "Research a specific person, organization, or entity mentioned in the content. Use when you need background on who someone is, their track record, or their connections.",
+      parameters: {
+        type: "object",
+        properties: {
+          entity_name: {
+            type: "string",
+            description: "The name of the person, organization, or entity to research.",
+          },
+          context: {
+            type: "string",
+            description: "Brief context about why this entity is relevant to the current analysis.",
+          },
+        },
+        required: ["entity_name"],
+      },
+    },
+  ];
+}
+
 export function buildLiveSystemInstruction(page: PageContext | null) {
   const pageContext = page
     ? [
