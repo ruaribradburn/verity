@@ -1,6 +1,7 @@
 import { LiveVoiceSession, type LiveInlineCard, type LiveSessionManager } from "@packages/client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ensureLiveSessionMediaPolicy } from "./media-permissions";
+import { formatSourceTag } from "./research/source-classify";
 import type { ResearchEvent, ResearchComplete } from "./research/types";
 
 const apiOrigin =
@@ -113,16 +114,18 @@ export default function App() {
 
     const summary = event.contexts
       .map((ctx, i) => {
-        const source = ctx.siteName ?? new URL(ctx.url).hostname;
+        const tag = formatSourceTag(i, ctx.title, ctx.url, ctx.siteName);
         const snippet = ctx.contentText.slice(0, 800);
-        return `[Source ${i + 1}: ${ctx.title ?? "Untitled"} — ${source}]\n${snippet}`;
+        return `${tag}\n${snippet}`;
       })
       .join("\n\n");
 
     manager.sendContext(
       `[Verity Research — ${event.contexts.length} sources collected]\n\n${summary}\n\n` +
         `Use these sources to give a more grounded, evidence-aware response to the user's last question. ` +
-        `Cite sources by number when relevant. Do not repeat the raw text back — synthesize.`,
+        `Each source is tagged with its type (wire service, public broadcaster, social discussion, video, tabloid, state-affiliated, etc.). ` +
+        `Weight wire services and public broadcasters more heavily than tabloids or social posts. ` +
+        `Flag state-affiliated sources explicitly. Cite sources by number when relevant. Synthesize — do not repeat raw text.`,
     );
   }
 

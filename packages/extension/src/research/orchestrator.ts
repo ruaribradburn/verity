@@ -69,7 +69,16 @@ export async function runResearch(
         totalPages: 0,
       });
     } else {
-      queries = [request.query];
+      // Voice-triggered: derive diverse queries from the spoken text,
+      // keeping the original query as the lead so it always runs.
+      const derived = deriveSearchQueries({
+        title: null,
+        contentText: request.query,
+      });
+      // Ensure the raw voice query is first (deriveSearchQueries may rephrase it).
+      queries = [request.query, ...derived.filter((q) => q !== request.query)];
+      // Cap to avoid excessive tab opening.
+      queries = [...new Set(queries)].slice(0, 8);
     }
 
     if (queries.length === 0) {
