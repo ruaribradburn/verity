@@ -248,6 +248,7 @@ export function LiveVoiceSession({ apiOrigin }: LiveVoiceSessionProps) {
     if (!context) {
       throw new Error("Canvas 2D context is unavailable for screen capture.");
     }
+    const drawContext = context;
 
     let interval: number | null = null;
 
@@ -258,7 +259,7 @@ export function LiveVoiceSession({ apiOrigin }: LiveVoiceSessionProps) {
       const scale = width / video.videoWidth;
       canvas.width = width;
       canvas.height = Math.max(720, Math.round(video.videoHeight * scale));
-      context.drawImage(video, 0, 0, canvas.width, canvas.height);
+      drawContext.drawImage(video, 0, 0, canvas.width, canvas.height);
       return canvas.toDataURL("image/jpeg", 0.72).split(",")[1] ?? null;
     }
 
