@@ -12,7 +12,8 @@
     "build:web": "bun scripts/run-workspace.ts web build",
     "start": "bun scripts/run-workspace.ts web start",
     "lint": "eslint .",
-    "check-types": "bun run --filter '*' check-types"
+    "check-types": "bun run --filter '*' check-types",
+    "setup:trafilatura": "bun scripts/install-trafilatura.ts"
   },
   "devDependencies": {
     "concurrently": "^9.2.1",

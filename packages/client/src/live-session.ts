@@ -4,7 +4,6 @@ import {
   GEMINI_LIVE_API_VERSION,
   GEMINI_LIVE_MODEL,
   accumulateTranscript,
-  buildLivePageSeed,
   buildLiveSystemInstruction,
   createLiveConfigSummary,
   type LiveTokenHttpResponse,
@@ -25,6 +24,8 @@ export type LiveSessionSnapshot = {
 export type LiveSessionManager = {
   connect(page: PageContext): Promise<void>;
   sendText(text: string): void;
+  /** Injects background context (e.g. research results) without ending the user turn. */
+  sendContext(text: string): void;
   sendAudioChunk(base64Pcm16: string): void;
   sendAudioStreamEnd(): void;
   sendVideoFrame(base64Jpeg: string): void;
@@ -36,6 +37,12 @@ type ManagerOptions = {
   apiOrigin: string;
   onSnapshot(snapshot: LiveSessionSnapshot): void;
   onAudioChunk?(pcm24KhzChunk: Uint8Array): void;
+};
+
+type Deferred<T> = {
+  promise: Promise<T>;
+  resolve(value: T): void;
+  reject(reason?: unknown): void;
 };
 
 type LiveSessionHandle = {
@@ -68,6 +75,27 @@ export function createLiveSessionManager(options: ManagerOptions): LiveSessionMa
   let lastError: string | null = null;
   let turnCompleteCount = 0;
 
+  function createDeferred<T>(): Deferred<T> {
+    let resolve!: (value: T) => void;
+    let reject!: (reason?: unknown) => void;
+    const promise = new Promise<T>((innerResolve, innerReject) => {
+      resolve = innerResolve;
+      reject = innerReject;
+    });
+    return { promise, resolve, reject };
+  }
+
+  async function waitForSetupComplete(setupCompletePromise: Promise<void>, timeoutMs = 10_000) {
+    await Promise.race([
+      setupCompletePromise,
+      new Promise<never>((_, reject) => {
+        window.setTimeout(() => {
+          reject(new Error("Gemini Live did not report setup completion in time."));
+        }, timeoutMs);
+      }),
+    ]);
+  }
+
   function emitSnapshot() {
     options.onSnapshot({
       state,
@@ -88,10 +116,10 @@ export function createLiveSessionManager(options: ManagerOptions): LiveSessionMa
         method: "POST",
       });
     } catch (err) {
-      console.error("[verity/live] Network error fetching token — is the API server running?", err);
+      console.error("[verity/live] Network error fetching token - is the API server running?", err);
       throw new Error(
         `Cannot reach API at ${options.apiOrigin}/live/token. From the repo root run \`bun run dev\` (starts web + API). ` +
-          `If the error persists from the Chrome extension, confirm CORS allows chrome-extension origins (packages/api enables this by default).`,
+          "If the error persists from the Chrome extension, confirm CORS allows chrome-extension origins (packages/api enables this by default).",
       );
     }
     console.log("[verity/live] Token response status:", res.status);
@@ -174,6 +202,7 @@ export function createLiveSessionManager(options: ManagerOptions): LiveSessionMa
         apiKey: token.token,
         apiVersion: GEMINI_LIVE_API_VERSION,
       });
+      const setupComplete = createDeferred<void>();
 
       session = await ai.live.connect({
         model: GEMINI_LIVE_MODEL,
@@ -184,12 +213,14 @@ export function createLiveSessionManager(options: ManagerOptions): LiveSessionMa
             parts: [{ text: buildLiveSystemInstruction(page) }],
           },
           speechConfig: {
+            languageCode: liveDefaults.speechLanguageCode,
             voiceConfig: {
               prebuiltVoiceConfig: {
                 voiceName: liveDefaults.voiceName,
               },
             },
           },
+          temperature: liveDefaults.temperature,
           inputAudioTranscription: {},
           outputAudioTranscription: {},
           realtimeInputConfig: {
@@ -203,9 +234,11 @@ export function createLiveSessionManager(options: ManagerOptions): LiveSessionMa
           },
           contextWindowCompression: {
             slidingWindow: {
-              targetTokens: String(liveDefaults.contextWindowCompression.targetTokens),
+              // @ts-expect-error SDK types declare string but the Live API requires numeric values.
+              targetTokens: liveDefaults.contextWindowCompression.targetTokens,
             },
-            triggerTokens: String(liveDefaults.contextWindowCompression.triggerTokens),
+            // @ts-expect-error SDK types declare string but the Live API requires numeric values.
+            triggerTokens: liveDefaults.contextWindowCompression.triggerTokens,
           },
           sessionResumption: resumeHandle ? { handle: resumeHandle } : undefined,
         },
@@ -216,34 +249,46 @@ export function createLiveSessionManager(options: ManagerOptions): LiveSessionMa
             emitSnapshot();
           },
           onmessage: (message) => {
+            if (message.setupComplete) {
+              console.log("[verity/live] Gemini Live setup complete");
+              setupComplete.resolve();
+            }
             queue.put(message);
           },
           onerror: (error) => {
             console.error("[verity/live] Gemini Live WebSocket error:", error.message);
             state = "error";
             lastError = error.message;
+            setupComplete.reject(error);
             emitSnapshot();
           },
-          onclose: () => {
-            console.log("[verity/live] Gemini Live WebSocket closed");
+          onclose: (event) => {
+            const code = event?.code ?? 1000;
+            const reason = typeof event?.reason === "string" ? event.reason : "";
+            const wasClean = event?.wasClean ?? true;
+            console.log(
+              "[verity/live] Gemini Live WebSocket closed",
+              `code=${code}`,
+              `reason=${reason || "none"}`,
+              `wasClean=${wasClean}`,
+            );
+            queue.clear();
+            session = null;
             state = "disconnected";
+            lastError =
+              code === 1000 && !reason
+                ? null
+                : `Gemini Live disconnected (code ${code}${reason ? `: ${reason}` : ""}).`;
+            setupComplete.reject(
+              new Error(`Gemini Live closed (code ${code}${reason ? `: ${reason}` : ""}).`),
+            );
             emitSnapshot();
           },
         },
       });
 
-      console.log("[verity/live] Live session ready — state: listening");
-      if (page.contentText.trim()) {
-        session.sendClientContent({
-          turns: [
-            {
-              role: "user",
-              parts: [{ text: buildLivePageSeed(page) }],
-            },
-          ],
-          turnComplete: false,
-        });
-      }
+      await waitForSetupComplete(setupComplete.promise);
+      console.log("[verity/live] Live session ready - state: listening");
 
       state = "listening";
       emitSnapshot();
@@ -257,6 +302,17 @@ export function createLiveSessionManager(options: ManagerOptions): LiveSessionMa
       state = "processing";
       partialAssistantTranscript = "";
       session.sendRealtimeInput({ text });
+      emitSnapshot();
+    },
+
+    sendContext(text) {
+      if (!session) {
+        throw new Error("Live session is not connected.");
+      }
+      session.sendClientContent({
+        turns: [{ role: "user", parts: [{ text }] }],
+        turnComplete: false,
+      });
       emitSnapshot();
     },
 

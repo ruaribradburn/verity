@@ -1,0 +1,3 @@
+# Used by packages/api via scripts/trafilatura_extract.py (page text extraction).
+# Install: bun run setup:trafilatura   OR   python3 -m pip install -r scripts/requirements.txt
+trafilatura>=1.6,<3

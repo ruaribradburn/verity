@@ -1,5 +1,8 @@
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
+# Python venv (bun run setup:trafilatura)
+.venv/
+
 # dependencies (root and all workspaces)
 node_modules/
 /.pnp

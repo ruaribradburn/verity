@@ -26,6 +26,15 @@ export type LiveVoiceSessionProps = {
   /** Prefill session setup (e.g. Chrome extension: active tab URL for reliable page hydration). */
   initialPageUrl?: string;
   initialPageTitle?: string;
+  /**
+   * Run before screen share + microphone (e.g. Chrome extension: enforce `chrome.permissions`
+   * and mic site policy). Should throw if the user must fix settings before capture APIs run.
+   */
+  prepareLiveMediaCapture?: () => Promise<void>;
+  /** Called when a user voice turn completes with the transcribed text. */
+  onUserTurnComplete?: (text: string) => void;
+  /** Called with the live session manager once connected, so the host can inject context. */
+  onManagerReady?: (manager: LiveSessionManager) => void;
 };
 
 type TranscriptEntry = {
@@ -49,6 +58,9 @@ export function LiveVoiceSession({
   apiOrigin,
   initialPageUrl,
   initialPageTitle,
+  prepareLiveMediaCapture,
+  onUserTurnComplete,
+  onManagerReady,
 }: LiveVoiceSessionProps) {
   const base = apiOrigin.replace(/\/$/, "");
 
@@ -125,13 +137,14 @@ export function LiveVoiceSession({
     }
 
     lastTurnCountRef.current = snapshot.turnCompleteCount;
+    const userText = snapshot.partialUserTranscript.trim();
     setTranscript((current) => {
       const next = [...current];
-      if (snapshot.partialUserTranscript.trim()) {
+      if (userText) {
         next.push({
           id: `user-${snapshot.turnCompleteCount}`,
           role: "user",
-          text: snapshot.partialUserTranscript.trim(),
+          text: userText,
           meta: "voice",
         });
       }
@@ -145,6 +158,9 @@ export function LiveVoiceSession({
       }
       return next;
     });
+    if (userText && onUserTurnComplete) {
+      onUserTurnComplete(userText);
+    }
   }, [snapshot.partialAssistantTranscript, snapshot.partialUserTranscript, snapshot.turnCompleteCount]);
 
   useEffect(() => {
@@ -159,6 +175,8 @@ export function LiveVoiceSession({
     setStarting(true);
     let microphoneStream: MediaStream | null = null;
     try {
+      await prepareLiveMediaCapture?.();
+
       const manager = createLiveSessionManager({
         apiOrigin: base,
         onSnapshot: (next) => {
@@ -196,6 +214,7 @@ export function LiveVoiceSession({
       if (hydrated.page.title) {
         setPageTitle(hydrated.page.title);
       }
+      onManagerReady?.(manager);
 
       setTranscript((current) => [
         ...current,
@@ -284,8 +303,8 @@ export function LiveVoiceSession({
   }
 
   return (
-    <main className="min-h-screen text-white">
-      <div className="mx-auto flex min-h-screen max-w-7xl flex-col px-4 py-6 sm:px-6 lg:px-8">
+    <main className="h-screen overflow-hidden text-white">
+      <div className="mx-auto flex h-full max-w-7xl flex-col px-4 py-6 sm:px-6 lg:px-8">
         <header className="border border-[var(--border)] px-6 py-5">
           <p className="text-[10px] font-medium uppercase tracking-[0.08em] text-[var(--foreground-muted)]">
             Verity live
@@ -339,8 +358,8 @@ export function LiveVoiceSession({
           </div>
         </header>
 
-        <section className="mt-4 grid flex-1 gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
-          <div className="flex min-h-[72vh] flex-col border border-[var(--border)]">
+        <section className="mt-4 grid min-h-0 flex-1 gap-4 overflow-hidden xl:grid-cols-[minmax(0,1fr)_320px]">
+          <div className="flex min-h-0 flex-col overflow-hidden border border-[var(--border)]">
             <div className="grid grid-cols-[1fr_auto] items-end gap-3 border-b border-[var(--border)] px-4 py-3">
               <div>
                 <p className="text-[10px] font-medium uppercase tracking-[0.06em] text-[var(--foreground-muted)]">
@@ -357,7 +376,7 @@ export function LiveVoiceSession({
               </div>
             </div>
 
-            <div className="flex-1 space-y-2 overflow-y-auto px-4 py-4">
+            <div className="min-h-0 flex-1 space-y-2 overflow-y-auto px-4 py-4">
               {transcript.map((entry) => (
                 <TranscriptEntryView key={entry.id} entry={entry} />
               ))}
@@ -434,7 +453,7 @@ export function LiveVoiceSession({
             </details>
           </div>
 
-          <aside className="flex flex-col gap-3">
+          <aside className="flex min-h-0 flex-col gap-3 overflow-y-auto">
             <details
               className="border border-[var(--border)] bg-[rgba(6,17,18,0.28)] px-4 py-3"
               open={setupOpen}
@@ -541,10 +560,13 @@ function formatStartSessionError(error: unknown) {
 }
 
 function TranscriptEntryView({ entry }: { entry: TranscriptEntry }) {
+  const [isOpen, setIsOpen] = useState(entry.role !== "system");
   const tone =
     entry.role === "user"
       ? "mr-auto border-[#2d3f56] bg-[#182435] text-[#d9e3f2]"
-      : "ml-auto border-[#33594e] bg-[#123329] text-[#e5f1ea]";
+      : entry.role === "assistant"
+        ? "ml-auto border-[#33594e] bg-[#123329] text-[#e5f1ea]"
+        : "mr-auto border-[#4e4a35] bg-[#262112] text-[#f4edd4]";
 
   const width = entry.role === "system" ? "max-w-xl" : "max-w-3xl";
 
@@ -555,9 +577,24 @@ function TranscriptEntryView({ entry }: { entry: TranscriptEntry }) {
           <TranscriptRoleIcon role={entry.role} />
           {entry.role}
         </span>
-        {entry.meta ? <span className="font-mono text-[11px] opacity-70">{entry.meta}</span> : null}
+        <div className="flex items-center gap-3">
+          {entry.meta ? <span className="font-mono text-[11px] opacity-70">{entry.meta}</span> : null}
+          {entry.role === "system" ? (
+            <button
+              type="button"
+              onClick={() => setIsOpen((current) => !current)}
+              className="inline-flex items-center gap-1 text-[10px] font-medium uppercase tracking-[0.06em] opacity-80"
+              aria-expanded={isOpen}
+            >
+              {isOpen ? <ChevronUp size={12} aria-hidden="true" /> : <ChevronDown size={12} aria-hidden="true" />}
+              {isOpen ? "Hide" : "Show"}
+            </button>
+          ) : null}
+        </div>
       </div>
-      <p className="mt-2 whitespace-pre-wrap text-[12px] leading-6">{entry.text}</p>
+      {entry.role !== "system" || isOpen ? (
+        <p className="mt-2 whitespace-pre-wrap text-[12px] leading-6">{entry.text}</p>
+      ) : null}
     </article>
   );
 }
@@ -580,6 +617,14 @@ async function hydratePageContext({
   fallbackPage: PageContext;
   screenshotBase64: string | null;
 }) {
+  if (fallbackPage.url === INITIAL_PAGE.url) {
+    return {
+      page: fallbackPage,
+      message: "Page text retrieval was skipped because no page URL hint was available yet.",
+      warnings: [],
+    };
+  }
+
   try {
     const response = await fetch(`${apiOrigin}/page/context`, {
       method: "POST",
