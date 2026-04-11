@@ -185,8 +185,10 @@ export default function App() {
           `**What to Read Next:** ${briefing.whatToReadNext}`,
           "",
           `Confidence: ${briefing.metadata?.confidence ?? "medium"}. ` +
-            `Synthesize this into a follow-up that adds to or corrects your initial response. ` +
-            `Cite specific findings. Do not repeat raw text.`,
+            `Now give the user a clear, unbiased analytical opinion based on ALL the evidence above. ` +
+            `State what the evidence supports, what it contradicts, and what remains uncertain. ` +
+            `Do not hedge excessively — give a direct, honest assessment while noting limits. ` +
+            `Cite specific sources. Do not repeat raw text.`,
         ].join("\n");
 
         manager.sendContext(formatted);
@@ -220,9 +222,9 @@ export default function App() {
       `[Verity Research — ${event.contexts.length} sources collected]\n\n` +
         crossRef +
         summary +
-        `\n\nSynthesize these sources into a follow-up. If your initial response was accurate, confirm and deepen it. ` +
-        `If these sources contradict something you said, correct it explicitly. ` +
-        `Cite sources by number. Do not repeat raw text.`,
+        `\n\nGive the user a clear, unbiased analytical opinion based on ALL sources above. ` +
+        `State what the evidence supports, what it contradicts, and what remains uncertain. ` +
+        `Be direct and honest. Cite sources by number. Do not repeat raw text.`,
     );
 
     const pending = pendingToolCallRef.current;
@@ -237,6 +239,22 @@ export default function App() {
   }
 
   const handleUserTurnComplete = useCallback((text: string) => {
+    // Voice-cancel: if the user says "stop" while research is running, cancel it
+    if (voiceResearchRef.current.phase === "researching" && isCancelIntent(text)) {
+      console.log("[verity/ext] User cancelled research via voice");
+      chrome.runtime.sendMessage({ type: "research:cancel" });
+      const pending = pendingToolCallRef.current;
+      if (pending && managerRef.current) {
+        managerRef.current.sendToolResponse(pending.id, pending.name, {
+          status: "cancelled",
+          error: "Research cancelled by user.",
+        });
+        pendingToolCallRef.current = null;
+      }
+      setVoiceResearch({ phase: "idle" });
+      return;
+    }
+
     // Don't auto-trigger if research is already running (from tool call or previous auto-trigger)
     if (voiceResearchRef.current.phase === "researching") return;
     // Don't trigger for short utterances
@@ -268,14 +286,39 @@ export default function App() {
     // Only auto-trigger for analytical queries
     if (!isAnalyticalQuery(text)) return;
 
-    // Give Gemini 3 seconds to call a tool itself. If it doesn't, auto-trigger.
+    // Give Gemini a brief window to call a tool itself. If it doesn't, auto-trigger immediately.
     if (autoTriggerTimerRef.current) clearTimeout(autoTriggerTimerRef.current);
-    autoTriggerTimerRef.current = setTimeout(() => {
+    autoTriggerTimerRef.current = setTimeout(async () => {
       // Check again — Gemini might have called a tool in the meantime
       if (voiceResearchRef.current.phase !== "idle") return;
 
-      console.log("[verity/ext] Auto-triggering research (Gemini did not call tools):", text.slice(0, 80));
+      // Detect if the user is referring to the current page/article on screen
+      const refersToCurrentPage = isCurrentPageReference(text);
 
+      if (refersToCurrentPage) {
+        // Research the active tab directly — don't search for the user's words
+        const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+        if (tab?.id && tab.url && /^https?:\/\//i.test(tab.url)) {
+          console.log("[verity/ext] Auto-triggering PAGE research for active tab:", tab.url);
+          setVoiceResearch({
+            phase: "researching",
+            query: tab.title ?? tab.url,
+            pagesRead: 0,
+            totalPages: 0,
+            status: "Analyzing current page...",
+            recentSources: [],
+          });
+          chrome.runtime.sendMessage({
+            type: "research:start",
+            source: "page",
+            tabId: tab.id,
+          });
+          return;
+        }
+      }
+
+      // Otherwise, use the user's question as a search query
+      console.log("[verity/ext] Auto-triggering QUERY research:", text.slice(0, 80));
       setVoiceResearch({
         phase: "researching",
         query: text,
@@ -290,7 +333,7 @@ export default function App() {
         source: "query",
         query: text,
       });
-    }, 3000);
+    }, 500);
   }, []);
 
   const handleToolCall = useCallback(
@@ -312,9 +355,32 @@ export default function App() {
       // Build search query based on which function Gemini called
       let query: string;
       switch (call.name) {
-        case "research_topic":
+        case "research_topic": {
           query = String(call.args.query ?? "");
+          // If Gemini's query refers to "this article/page," research the active tab instead
+          if (isCurrentPageReference(query)) {
+            pendingToolCallRef.current = { id: call.id, name: call.name };
+            void (async () => {
+              const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+              if (tab?.id && tab.url && /^https?:\/\//i.test(tab.url)) {
+                setVoiceResearch({
+                  phase: "researching",
+                  query: tab.title ?? tab.url,
+                  pagesRead: 0,
+                  totalPages: 0,
+                  status: "Analyzing current page...",
+                  recentSources: [],
+                });
+                chrome.runtime.sendMessage({ type: "research:start", source: "page", tabId: tab.id });
+              } else {
+                manager.sendToolResponse(call.id, call.name, { error: "No active web page found to research." });
+                pendingToolCallRef.current = null;
+              }
+            })();
+            return;
+          }
           break;
+        }
         case "fact_check_claim":
           query = `fact check: ${String(call.args.claim ?? "")}`;
           break;
@@ -422,6 +488,34 @@ function isAnalyticalQuery(text: string): boolean {
     "compare", "contrast", "different perspective",
   ];
   return analyticalTerms.some((term) => lower.includes(term));
+}
+
+/** Detect if the user wants to cancel running research. */
+function isCancelIntent(text: string): boolean {
+  const lower = text.toLowerCase();
+  const cancelTerms = [
+    "stop research", "cancel research", "stop the research", "cancel the research",
+    "stop looking", "stop searching", "never mind", "nevermind",
+    "that's enough", "enough research", "stop digging",
+    "cancel that", "abort", "stop that",
+  ];
+  return cancelTerms.some((term) => lower.includes(term));
+}
+
+/** Detect if the user is referring to the page/article currently on screen. */
+function isCurrentPageReference(text: string): boolean {
+  const lower = text.toLowerCase();
+  const pageReferenceTerms = [
+    "this article", "this page", "this news", "this story", "this post",
+    "this blog", "this piece", "this report", "the article", "the page",
+    "the news", "the story", "what i'm reading", "what i'm looking at",
+    "what's on screen", "what's on the screen", "on screen",
+    "what i've shown", "that i've shown", "i'm showing",
+    "current page", "current article", "this site",
+    "do some research on this", "research this", "analyze this", "analyse this",
+    "check this article", "fact check this", "look at this",
+  ];
+  return pageReferenceTerms.some((term) => lower.includes(term));
 }
 
 function buildResearchInlineCard(status: VoiceResearchStatus): LiveInlineCard | null {
