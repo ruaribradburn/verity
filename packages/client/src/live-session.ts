@@ -89,7 +89,10 @@ export function createLiveSessionManager(options: ManagerOptions): LiveSessionMa
       });
     } catch (err) {
       console.error("[verity/live] Network error fetching token — is the API server running?", err);
-      throw new Error(`Cannot reach API at ${options.apiOrigin}/live/token. Is the server running?`);
+      throw new Error(
+        `Cannot reach API at ${options.apiOrigin}/live/token. From the repo root run \`bun run dev\` (starts web + API). ` +
+          `If the error persists from the Chrome extension, confirm CORS allows chrome-extension origins (packages/api enables this by default).`,
+      );
     }
     console.log("[verity/live] Token response status:", res.status);
     const body = (await res.json()) as LiveTokenHttpResponse;

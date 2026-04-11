@@ -38,7 +38,7 @@ The extension path is deliberately thin:
 
 ## Useful Commands
 
-- `bun run dev`: run web and API together from the repo root
+- `bun run dev`: run web and API together from the repo root (required for live voice: the extension and web UI call `packages/api` on `API_PORT`, default `3001`)
 - `bun run dev:web`: run only the Next.js app in `packages/web`
 - `bun run dev:api`: run only the Hono API in `packages/api`
 - `bun run check-types`: run all workspace TypeScript checks
@@ -51,7 +51,13 @@ The extension path is deliberately thin:
 - `GEMINI_API_KEY` is server-only and is used to mint ephemeral browser tokens.
 - `WEB_PORT` and `API_PORT` must differ.
 - `NEXT_PUBLIC_API_ORIGIN` is used by the browser client when it needs to call the API directly.
-- `PYTHON_BIN` can override the interpreter used for `scripts/trafilatura_extract.py`.
+- The Chrome extension uses `Origin: chrome-extension://…`; `packages/api` allows those origins for local development so `fetch` to `http://127.0.0.1:3001` succeeds.
+- `PYTHON_BIN` overrides the interpreter for `scripts/trafilatura_extract.py` (defaults to `python3` on macOS/Linux, `python` on Windows). Install deps: `python3 -m pip install trafilatura`.
+
+## Product plans (superpowers)
+
+- `docs/superpowers/plans/2026-04-11-extension-autonomous-research.md` — implementation checklist (research UI + live voice + API/extension wiring).
+- `docs/superpowers/specs/2026-04-11-extension-autonomous-research-design.md` — design snapshot for the same effort.
 
 ## Known Mismatches
 

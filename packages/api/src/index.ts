@@ -27,6 +27,9 @@ import {
 const URL_RESOLUTION_MODEL = "gemini-2.5-flash";
 const TRAFILATURA_SCRIPT_PATH = fileURLToPath(new URL("../../../scripts/trafilatura_extract.py", import.meta.url));
 
+/** macOS/Linux often have `python3` but not `python`; Windows often exposes `python`. */
+const DEFAULT_PYTHON_BIN = process.platform === "win32" ? "python" : "python3";
+
 type ScreenResolution = {
   url: string | null;
   title: string | null;
@@ -84,10 +87,6 @@ function parseCorsOrigins(raw: string | undefined): string[] {
         .split(",")
         .map((value) => value.trim().replace(/\/$/, ""))
         .filter(Boolean);
-
-  if (process.env.VERITY_ALLOW_EXTENSION_CORS === "1") {
-    console.log("[verity/api] Extension CORS enabled — chrome-extension:// origins will be allowed");
-  }
 
   return origins;
 }
@@ -183,7 +182,7 @@ async function resolvePageFromScreen(params: {
 }
 
 async function runTrafilatura(url: string): Promise<TrafilaturaResult> {
-  const python = process.env.PYTHON_BIN?.trim() || "python";
+  const python = process.env.PYTHON_BIN?.trim() || DEFAULT_PYTHON_BIN;
 
   return await new Promise<TrafilaturaResult>((resolve, reject) => {
     const child = spawn(python, [TRAFILATURA_SCRIPT_PATH, url], {
@@ -244,10 +243,8 @@ app.use(
     origin: (origin) => {
       if (!origin) return allowedOrigins[0];
       if (allowedOrigins.includes(origin)) return origin;
-      if (
-        process.env.VERITY_ALLOW_EXTENSION_CORS === "1" &&
-        origin.startsWith("chrome-extension://")
-      ) {
+      // Chrome extensions call the local API with Origin: chrome-extension://<id>
+      if (origin.startsWith("chrome-extension://")) {
         return origin;
       }
       return null;
@@ -413,10 +410,15 @@ app.post("/page/context", async (c) => {
   try {
     extraction = await runTrafilatura(resolvedUrl);
   } catch (error) {
+    const base = error instanceof Error ? error.message : "Failed to invoke trafilatura.";
+    const hint =
+      /ENOENT|not found|spawn/i.test(base) || /PATH/i.test(base)
+        ? ` Set PYTHON_BIN in .env (e.g. PYTHON_BIN=${DEFAULT_PYTHON_BIN}), ensure Python 3 is installed, and run: ${DEFAULT_PYTHON_BIN} -m pip install trafilatura`
+        : "";
     return c.json(
       {
         ok: false,
-        error: error instanceof Error ? error.message : "Failed to invoke trafilatura.",
+        error: base + hint,
         warnings,
       } satisfies PageHydrationHttpResponse,
       500,
@@ -499,7 +501,9 @@ app.post("/analyze", async (c) => {
 });
 
 serve({ fetch: app.fetch, port: apiPort }, (info) => {
+  const py = process.env.PYTHON_BIN?.trim() || DEFAULT_PYTHON_BIN;
   console.log(
     `[verity/api] listening on http://127.0.0.1:${info.port} (CORS: ${allowedOrigins.join(", ")})`,
   );
+  console.log(`[verity/api] trafilatura Python: ${py} (override with PYTHON_BIN in .env)`);
 });

@@ -2,7 +2,9 @@
 
 import { useEffect, useRef, useState } from "react";
 import {
+  attachMicrophoneToLiveSession,
   createLiveSessionManager,
+  createScreenShareHandle,
   type LiveSessionManager,
   type LiveSessionSnapshot,
 } from "@packages/client";
@@ -17,12 +19,6 @@ type TranscriptEntry = {
   role: "system" | "user" | "assistant";
   text: string;
   meta?: string;
-};
-
-type ScreenShareHandle = {
-  captureFrame(): string | null;
-  startStreaming(manager: LiveSessionManager): void;
-  stop(): void;
 };
 
 const API_ORIGIN =
@@ -42,7 +38,7 @@ export default function Home() {
   const managerRef = useRef<LiveSessionManager | null>(null);
   const screenCleanupRef = useRef<(() => void) | null>(null);
   const micCleanupRef = useRef<(() => void) | null>(null);
-  const audioContextRef = useRef<AudioContext | null>(null);
+  const playbackAudioContextRef = useRef<AudioContext | null>(null);
   const playbackCursorRef = useRef(0);
   const lastTurnCountRef = useRef(0);
   const snapshotRef = useRef<LiveSessionSnapshot>({
@@ -142,7 +138,13 @@ export default function Home() {
 
       await manager.connect(hydrated.page);
       screenShare.startStreaming(manager);
-      microphoneStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      microphoneStream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      });
       await startMicrophone(manager, microphoneStream);
       microphoneStream = null;
 
@@ -190,6 +192,8 @@ export default function Home() {
     screenCleanupRef.current = null;
     micCleanupRef.current?.();
     micCleanupRef.current = null;
+    playbackAudioContextRef.current?.close().catch(() => undefined);
+    playbackAudioContextRef.current = null;
     managerRef.current?.close();
     managerRef.current = null;
     playbackCursorRef.current = 0;
@@ -211,43 +215,18 @@ export default function Home() {
   }
 
   async function startMicrophone(manager: LiveSessionManager, stream: MediaStream) {
-    const audioContext = new AudioContext();
-    audioContextRef.current = audioContext;
-
-    const source = audioContext.createMediaStreamSource(stream);
-    const processor = audioContext.createScriptProcessor(4096, 1, 1);
-
-    processor.onaudioprocess = (event) => {
-      if (!managerRef.current || snapshotRef.current.state === "speaking") {
-        return;
-      }
-
-      const input = event.inputBuffer.getChannelData(0);
-      const pcm16 = downsampleToPcm16(input, audioContext.sampleRate, 16000);
-      if (pcm16.byteLength === 0) return;
-      manager.sendAudioChunk(uint8ArrayToBase64(new Uint8Array(pcm16.buffer)));
-    };
-
-    source.connect(processor);
-    processor.connect(audioContext.destination);
-
-    micCleanupRef.current = () => {
-      manager.sendAudioStreamEnd();
-      processor.disconnect();
-      source.disconnect();
-      stream.getTracks().forEach((track) => track.stop());
-      audioContext.close().catch(() => undefined);
-      audioContextRef.current = null;
-    };
+    micCleanupRef.current = await attachMicrophoneToLiveSession(manager, stream, {
+      shouldSend: () => managerRef.current != null,
+    });
   }
 
   function enqueueAssistantAudio(bytes: Uint8Array) {
     const audioContext =
-      audioContextRef.current ??
+      playbackAudioContextRef.current ??
       new AudioContext({
         sampleRate: 24000,
       });
-    audioContextRef.current = audioContext;
+    playbackAudioContextRef.current = audioContext;
 
     const samples = pcm16ToFloat32(bytes);
     const buffer = audioContext.createBuffer(1, samples.length, 24000);
@@ -411,67 +390,6 @@ export default function Home() {
   );
 }
 
-async function createScreenShareHandle(): Promise<ScreenShareHandle> {
-  const stream = await navigator.mediaDevices.getDisplayMedia({
-    video: true,
-    audio: false,
-  });
-
-  const video = document.createElement("video");
-  video.srcObject = stream;
-  video.muted = true;
-  video.playsInline = true;
-  await video.play();
-
-  const canvas = document.createElement("canvas");
-  const context = canvas.getContext("2d");
-  if (!context) {
-    throw new Error("Canvas 2D context is unavailable for screen capture.");
-  }
-  const drawContext = context;
-
-  let interval: number | null = null;
-
-  function captureFrame() {
-    if (video.videoWidth === 0 || video.videoHeight === 0) return null;
-
-    const width = 1280;
-    const scale = width / video.videoWidth;
-    canvas.width = width;
-    canvas.height = Math.max(720, Math.round(video.videoHeight * scale));
-    drawContext.drawImage(video, 0, 0, canvas.width, canvas.height);
-    return canvas.toDataURL("image/jpeg", 0.72).split(",")[1] ?? null;
-  }
-
-  const stop = () => {
-    if (interval != null) {
-      window.clearInterval(interval);
-      interval = null;
-    }
-    stream.getTracks().forEach((track) => track.stop());
-  };
-
-  stream.getVideoTracks()[0]?.addEventListener("ended", stop, { once: true });
-
-  return {
-    captureFrame,
-    startStreaming(manager) {
-      const initialFrame = captureFrame();
-      if (initialFrame) {
-        manager.sendVideoFrame(initialFrame);
-      }
-
-      interval = window.setInterval(() => {
-        const frame = captureFrame();
-        if (frame) {
-          manager.sendVideoFrame(frame);
-        }
-      }, 1000);
-    },
-    stop,
-  };
-}
-
 function formatStartSessionError(error: unknown) {
   if (error instanceof DOMException) {
     if (error.name === "NotAllowedError") {
@@ -567,56 +485,6 @@ async function hydratePageContext({
       warnings: [error instanceof Error ? error.message : "Page hydration failed."],
     };
   }
-}
-
-function downsampleToPcm16(input: Float32Array, inputRate: number, outputRate: number) {
-  if (inputRate === outputRate) {
-    return floatTo16BitPcm(input);
-  }
-
-  const ratio = inputRate / outputRate;
-  const outputLength = Math.round(input.length / ratio);
-  const result = new Int16Array(outputLength);
-  let offsetResult = 0;
-  let offsetBuffer = 0;
-
-  while (offsetResult < result.length) {
-    const nextOffsetBuffer = Math.round((offsetResult + 1) * ratio);
-    let accum = 0;
-    let count = 0;
-
-    for (let index = offsetBuffer; index < nextOffsetBuffer && index < input.length; index += 1) {
-      accum += input[index];
-      count += 1;
-    }
-
-    const sample = count > 0 ? accum / count : 0;
-    result[offsetResult] =
-      Math.max(-1, Math.min(1, sample)) < 0
-        ? Math.max(-32768, Math.min(32767, sample * 0x8000))
-        : Math.max(-32768, Math.min(32767, sample * 0x7fff));
-    offsetResult += 1;
-    offsetBuffer = nextOffsetBuffer;
-  }
-
-  return result;
-}
-
-function floatTo16BitPcm(input: Float32Array) {
-  const result = new Int16Array(input.length);
-  for (let index = 0; index < input.length; index += 1) {
-    const sample = Math.max(-1, Math.min(1, input[index]));
-    result[index] = sample < 0 ? sample * 0x8000 : sample * 0x7fff;
-  }
-  return result;
-}
-
-function uint8ArrayToBase64(bytes: Uint8Array) {
-  let binary = "";
-  for (let index = 0; index < bytes.length; index += 1) {
-    binary += String.fromCharCode(bytes[index]);
-  }
-  return btoa(binary);
 }
 
 function pcm16ToFloat32(bytes: Uint8Array) {

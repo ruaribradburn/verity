@@ -17,7 +17,7 @@ def main() -> int:
             json.dumps(
                 {
                     "ok": False,
-                    "error": "Python package 'trafilatura' is not installed. Install it with `python -m pip install trafilatura`.",
+                    "error": "Python package 'trafilatura' is not installed. Install it with `python3 -m pip install trafilatura` (or `python -m pip` on Windows).",
                 }
             )
         )
