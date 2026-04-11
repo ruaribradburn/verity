@@ -4,7 +4,6 @@ import {
   GEMINI_LIVE_API_VERSION,
   GEMINI_LIVE_MODEL,
   accumulateTranscript,
-  buildLivePageSeed,
   buildLiveSystemInstruction,
   createLiveConfigSummary,
   type LiveTokenHttpResponse,
@@ -282,18 +281,6 @@ export function createLiveSessionManager(options: ManagerOptions): LiveSessionMa
 
       await waitForSetupComplete(setupComplete.promise);
       console.log("[verity/live] Live session ready - state: listening");
-
-      if (page.contentText.trim()) {
-        session.sendClientContent({
-          turns: [
-            {
-              role: "user",
-              parts: [{ text: buildLivePageSeed(page) }],
-            },
-          ],
-          turnComplete: false,
-        });
-      }
 
       state = "listening";
       emitSnapshot();

@@ -580,6 +580,14 @@ async function hydratePageContext({
   fallbackPage: PageContext;
   screenshotBase64: string | null;
 }) {
+  if (fallbackPage.url === INITIAL_PAGE.url) {
+    return {
+      page: fallbackPage,
+      message: "Page text retrieval was skipped because no page URL hint was available yet.",
+      warnings: [],
+    };
+  }
+
   try {
     const response = await fetch(`${apiOrigin}/page/context`, {
       method: "POST",
