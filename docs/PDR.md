@@ -62,6 +62,25 @@ This stance applies to **copy, synthesis prompts, and UI defaults** (tone, hedgi
 * **Sources may be in many languages** (page text, transcripts, user speech). The system uses **language detection** and, where needed, **cross-language understanding** so that evidence and claims feed into a **single language-agnostic representation** in shared context (canonical claim IDs, entity keys, evidence pointers, confidence)—**one merged analytical object** before final delivery.
 * **Delivery locale**: The same merged artifact is **rendered** (written and/or spoken) in the **user’s chosen language(s)** without re-running independent per-language “truth” passes that could diverge; optional lightweight **localization** adjusts phrasing while preserving uncertainty and citations.
 
+## 1.7 Multi-tab sessions, cross-surface capture, and backend research
+
+**Problem**: A single active page is rarely enough to compare framing or corroborate claims. Users need a **wider evidence base** (news, video, social discourse, official statements) **without** manually copying each URL.
+
+**Multi-tab and multi-surface ingestion (frontend / extension + Gemini-assisted UX)**
+
+* The **browser extension** (and, where applicable, client UI powered by **Gemini** for lightweight assistance) supports **research sessions** that **automatically or semi-automatically** include **multiple tabs** the user has opened—subject to **explicit consent** and clear UX (e.g. “include these tabs in this analysis,” session scope, opt-out per tab).
+* The client **does not** replace backend research: it **captures** normalized payloads per tab (URL, title, extracted text/metadata, timestamps) and ships them **in one batch** to the backend so the orchestrator can treat them as **parallel primary inputs** alongside any server-side fetches.
+* Optional **client-side Gemini** calls may suggest **which tabs are likely relevant** or summarize tab titles for the user—**hints only**; **detailed research, verification, and merging** run **on the backend** so behavior is consistent, auditable, and not split across two “sources of truth.”
+
+**Backend-led research (authoritative)**
+
+* **Research and verification agents** run **server-side**: they consume the **canonical claim graph** from shared context and **retrieve or request** additional material through **policy-compliant connectors**—e.g. **news** (RSS/API/partner feeds where available), **YouTube** (metadata, captions/transcripts via allowed APIs or user-provided context), **social platforms** (official APIs or public embeds where permitted—not scraping behind login walls by default), and **general web** (fetch/cache with robots.txt and rate-limit respect).
+* Goal: assemble **broader, citable evidence** in **one pass** where possible so synthesis (§1.5) can compare **across surfaces** (e.g. how a story differs between a tab, a wire article, and a primary-source video) without claiming a single “true” narrative.
+
+**Compliance and trust**
+
+* All automated collection must follow **platform terms**, **robots.txt**, **API keys** where required, and **privacy** commitments; restricted or high-risk surfaces may be **disabled by default** or require explicit user action (e.g. paste link, connect account).
+
 ---
 
 # 2. Problem Statement
@@ -81,7 +100,8 @@ This leads to misinformation exposure, shallow understanding, and cognitive over
 
 A real-time assistant implemented as a **fleet of cooperating agents** that:
 
-* Ingests web content (text, audio, visual)
+* Ingests web content (text, audio, visual)—including **multi-tab sessions** from the extension so several pages contribute to one analysis (§1.7)
+* Lets **backend research agents** widen the evidence set using **connectors** (news, video, social, open web) under compliance rules (§1.7)
 * Extracts entities and builds a knowledge graph (dedicated extraction + graph agents)
 * Analyzes bias and credibility (analysis agents with shared schemas for claims and scores)
 * Runs **parallel verification and research agents** that share intermediate results (e.g. disputed claims, sources) via the orchestrator or a shared working memory
@@ -97,6 +117,7 @@ A real-time assistant implemented as a **fleet of cooperating agents** that:
 ## 4.1 Real-Time Content Ingestion
 
 * Browser extension / API integration
+* **Multi-tab research sessions** (§1.7): user-consented capture of **multiple open tabs** in one session; payloads are **batched** to the backend as parallel inputs (URL, title, extracted content, tab metadata) so analysis is **cross-page by design**.
 * Supports:
 
   * Web pages
@@ -170,11 +191,13 @@ A real-time assistant implemented as a **fleet of cooperating agents** that:
   * Low confidence
   * High-impact claims
   * Orchestrator-detected contradictions between agents
+  * User or system initiates a **broadened research pass** (e.g. after multi-tab ingest §4.1) to compare **news vs. social vs. video** narratives
 * Capabilities:
 
   * Cross-source verification
   * Opposing viewpoint retrieval
   * Checking claims against **multiple independent sources** where possible
+  * **Backend-orchestrated fetches** via **source connectors** (§4.11)—not limited to a single tab the user is viewing
 * **Interoperability**: research agents accept **structured claim lists** from analysis agents and return **citable findings** (including **contradictions** and **gaps**) for the output/synthesis agent—so synthesis can state **what is better supported** without claiming final truth.
 
 ## 4.8 Gap Detection
@@ -201,13 +224,19 @@ A real-time assistant implemented as a **fleet of cooperating agents** that:
 * Concise spoken summaries that preserve **uncertainty and citations** where feasible (no “voice-only” stronger claims than text).
 * Structured explanation format; **locale** for speech follows user preference (§1.6).
 
+## 4.11 Backend source connectors & cross-surface research
+
+* **Server-side connectors** (implementation-specific) bring in material beyond what the user already opened—e.g. **news outlets**, **YouTube** (captions/metadata where allowed), **social / microblogging** via official APIs or permitted public data, and **targeted web retrieval** for corroboration.
+* Connectors feed **research / verification agents** (§4.7), not a separate user-visible “chat per source”; outputs merge into **shared context** as **evidence bundles** with URLs and timestamps.
+* **Not** a guarantee of “ground truth”: connectors expand **what can be compared**; synthesis remains **depolarized and uncertainty-aware** (§1.5).
+
 ---
 
 # 5. User Experience
 
 ## 5.1 Entry Points
 
-* Browser extension
+* Browser extension (including **multi-tab research sessions** §1.7)
 * Chat interface
 * API integration
 
@@ -215,6 +244,7 @@ A real-time assistant implemented as a **fleet of cooperating agents** that:
 
 * Passive mode (auto-analysis while browsing)
 * Active mode (user queries)
+* **Session mode**: user defines a **set of tabs or bookmarks** (or accepts automatic inclusion) so the product pulls **one combined briefing** from **many sources at once**; progress UX may show per-surface research status while **one** merged result is delivered (§5.4)
 
 ## 5.3 Output Format
 
@@ -241,27 +271,29 @@ Voice and UI microcopy should reinforce §1.5 (no false certainty; user retains 
 
 ## 6.1 High-Level Components
 
-1. Ingestion Layer (with language detection / tagging for multilingual sources)
-2. **Multilingual canonicalization layer**: maps mixed-language inputs into **one language-agnostic structured state** (feeds shared context; §1.6)
-3. NLP Processing Layer (NER / extraction **agents**)
-4. Knowledge Graph Service (graph **agent** + store)
-5. **Google AI Studio–aligned Gemini API layer**: prompts/config from Studio; runtime calls to Gemini for agent steps that require the mandated stack (§1.6)
-6. **Multi-Agent Orchestrator** (routing, parallelism, merge, escalation)
-7. Analysis **agents** (bias, framing, credibility)
-8. Research / verification **agents** (parallel where possible)
-9. **Synthesis / output agent** (single user-facing **briefing**: depolarized tone, uncertainty-aware, traceable to agents and sources—not a definitive “answer key”)
-10. **Voice agent** (speech I/O on the same Gemini stack and **same** briefing object as text)
-11. Frontend Interface (text + optional voice)
+1. **Client / extension layer**: active page + **multi-tab session coordinator** (capture, consent, batch upload); optional **lightweight Gemini** UX assist (tab relevance hints—not authoritative research §1.7)
+2. Ingestion Layer (with language detection / tagging for multilingual sources; **batch multi-tab payloads** §4.1)
+3. **Multilingual canonicalization layer**: maps mixed-language inputs into **one language-agnostic structured state** (feeds shared context; §1.6)
+4. NLP Processing Layer (NER / extraction **agents**)
+5. Knowledge Graph Service (graph **agent** + store)
+6. **Google AI Studio–aligned Gemini API layer**: prompts/config from Studio; runtime calls to Gemini for agent steps that require the mandated stack (§1.6)
+7. **Multi-Agent Orchestrator** (routing, parallelism, merge, escalation)
+8. Analysis **agents** (bias, framing, credibility)
+9. **Backend source connector layer** (news, video, social, web—policy-compliant §4.11) feeding research agents
+10. Research / verification **agents** (parallel where possible; **primary** deep research path §1.7)
+11. **Synthesis / output agent** (single user-facing **briefing**: depolarized tone, uncertainty-aware, traceable to agents and sources—not a definitive “answer key”)
+12. **Voice agent** (speech I/O on the same Gemini stack and **same** briefing object as text)
+13. Frontend Interface (text + optional voice)
 
 ## 6.2 Data Flow
 
-1. Input content → ingestion normalizes payload and **language metadata** for agents.
-2. **Canonicalization**: mixed-language spans are aligned to **one structured representation** (claims, entities, evidence IDs) in shared context (§1.6); no duplicate parallel pipelines per source language.
+1. **Extension / client** may send **one batch** of tab payloads (or single-page) → ingestion normalizes payload(s) and **language metadata**; optional **client Gemini** may annotate **relevance hints** only (§1.7).
+2. **Canonicalization**: mixed-language spans are aligned to **one structured representation** (claims, entities, evidence IDs) in shared context (§1.6); **all tabs and connector-backed fetches** converge here—not separate silos per tab.
 3. Orchestrator fans out: entity extraction ∥ early claim/span detection (where applicable), using **Gemini API** where specified (§1.6).
 4. Graph agent updates knowledge graph; scores propagate to shared context.
 5. Bias + credibility **analysis agents** write structured results; orchestrator detects conflicts or low confidence.
-6. Research agents run **in parallel** on independent claim bundles; results merged with source pointers (cross-language evidence allowed).
-7. **Synthesis agent** (Gemini-backed per §1.6) produces **one** briefing from the shared representation (traceable to each upstream agent), applying **depolarized phrasing** and **explicit uncertainty** per §1.5.
+6. **Backend research agents** run **in parallel**: they use **RAG + source connectors** (§4.11) to add **news / video / social / web** evidence where policy allows; merge **citable findings** into shared context alongside user-opened tabs.
+7. **Synthesis agent** (Gemini-backed per §1.6) produces **one** briefing from the shared representation (traceable to each upstream agent and **surface**), applying **depolarized phrasing** and **explicit uncertainty** per §1.5.
 8. **Delivery**: text UI and **voice agent** consume the **same** briefing object; output **locale** (read/speak) is applied at presentation time without changing the underlying merged analysis.
 
 ## 6.3 Multi-Agent Roles (illustrative)
@@ -272,7 +304,9 @@ Voice and UI microcopy should reinforce §1.5 (no false certainty; user retains 
 | Extraction / NER | Entities, spans, disambiguation hints | Graph, analysis |
 | Graph | Nodes, edges, confidence | Scoring, synthesis |
 | Bias / credibility | Scores, rationale snippets | Orchestrator, research, synthesis |
-| Research | Evidence, corroboration, opposing views | Orchestrator, synthesis |
+| Tab session coordinator | Multi-tab capture, consent, batch to API | Ingestion, optional client Gemini |
+| Source connectors | Policy-compliant fetch: news, YT, social, web | Research agents |
+| Research | Evidence, corroboration, opposing views, connector-backed fetches | Orchestrator, synthesis |
 | Synthesis | Depolarized briefing, sectioning, citations, uncertainty | User, voice agent |
 | Voice agent | Speech I/O; **same briefing** as text; Gemini / Studio-aligned | User |
 
@@ -296,6 +330,7 @@ Agents **do not** each emit a separate chat stream to the user by default; the p
 * Graph-based reasoning
 * **Multi-agent orchestration** with explicit handoffs and a **shared structured state** (claims, entities, scores, evidence IDs) so agents coordinate without redundant LLM calls where possible
 * Parallel tool-use and bounded concurrency for research agents to meet latency goals
+* **Multi-tab and multi-connector fan-in**: single canonical state after ingest + backend fetches (§1.7, §4.11)
 
 ---
 
@@ -311,10 +346,12 @@ Agents **do not** each emit a separate chat stream to the user by default; the p
 * Conversational output with **depolarized, uncertainty-aware** default tone (§1.5, §5.3)
 * **At least two specialized agents plus orchestration** (e.g. extraction/analysis → synthesis), with a defined shared schema for passing results—even if research agents are minimal stubs initially
 * **Multilingual path**: at minimum, **one canonical structured state** for analysis and one delivery locale (expand languages iteratively)
+* **Multi-tab ingest path** (manual selection of tabs acceptable for MVP if full automation is phased)
 
 ## 8.2 Should Have
 
 * **Voice agent** fully aligned with Studio prompts and **same briefing object** as text (§1.6, §4.10)
+* **Automatic multi-tab inclusion** (with strong consent UX) and **rich connector coverage** (news, YouTube, major social APIs) for backend research (§1.7, §4.11)
 * Knowledge graph visualization
 * **Full parallel research agent pool** with orchestrator-driven escalation
 * Dashboard persistence
@@ -347,6 +384,7 @@ Agents **do not** each emit a separate chat stream to the user by default; the p
 * **Multi-agent inconsistency**: without a strong shared schema and merge rules, agents may produce conflicting scores or duplicate verification; orchestrator and synthesis must resolve or surface uncertainty explicitly
 * **False certainty / polarizing tone**: models may overstate confidence or echo partisan framing; **copy standards, synthesis prompts, and evals** must enforce §1.5 (depolarized, evidence-weighted, no “this is correct” by default)
 * **Vendor / API dependency**: core reasoning and voice are tied to **Google AI Studio / Gemini** (§1.6); outages, quota, or policy changes require **graceful degradation** and clear user messaging
+* **Platform and legal constraints**: multi-tab capture and **social/news/YouTube** access must respect **ToS, copyright, API rules, and privacy**; misconfiguration could block features or create liability—**connectors are allowlisted and reviewed**
 
 ---
 
