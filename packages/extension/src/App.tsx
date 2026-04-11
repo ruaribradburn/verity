@@ -286,7 +286,7 @@ export default function App() {
     // Only auto-trigger for analytical queries
     if (!isAnalyticalQuery(text)) return;
 
-    // Give Gemini 3 seconds to call a tool itself. If it doesn't, auto-trigger.
+    // Give Gemini a brief window to call a tool itself. If it doesn't, auto-trigger immediately.
     if (autoTriggerTimerRef.current) clearTimeout(autoTriggerTimerRef.current);
     autoTriggerTimerRef.current = setTimeout(async () => {
       // Check again — Gemini might have called a tool in the meantime
@@ -333,7 +333,7 @@ export default function App() {
         source: "query",
         query: text,
       });
-    }, 3000);
+    }, 500);
   }, []);
 
   const handleToolCall = useCallback(
