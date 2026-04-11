@@ -61,7 +61,7 @@ export type LiveInlineCard = {
 
 const INITIAL_PAGE: PageContext = {
   url: "Screen share session",
-  title: "Current browsing session",
+  title: "Live screen share",
   siteName: "live-share",
   publishedAt: null,
   selectionText: null,
@@ -133,9 +133,7 @@ export function LiveVoiceSession({
     });
   }, [initialPageUrl, initialPageTitle]);
   const [starting, setStarting] = useState(false);
-  const [detailsOpen, setDetailsOpen] = useState(false);
   const [composeOpen, setComposeOpen] = useState(false);
-  const [setupOpen, setSetupOpen] = useState(true);
 
   useEffect(() => {
     void fetch(`${base}/live/config`)
@@ -337,7 +335,7 @@ export function LiveVoiceSession({
             Live page analysis workspace
           </h1>
           <p className="mt-1 max-w-3xl text-[11px] leading-5 text-[var(--foreground-muted)]">
-            Transcript first. Setup and transport details stay collapsed until needed.
+            Transcript first. Start the live session and keep the conversation in view.
           </p>
 
           <div className="mt-5 flex flex-col gap-3 border border-[var(--border)] bg-[rgba(6,17,18,0.45)] p-4">
@@ -382,7 +380,7 @@ export function LiveVoiceSession({
           </div>
         </header>
 
-        <section className="mt-4 grid min-h-0 flex-1 gap-4 overflow-hidden xl:grid-cols-[minmax(0,1fr)_320px]">
+        <section className="mt-4 min-h-0 flex-1 overflow-hidden">
           <div className="flex min-h-0 flex-col overflow-hidden border border-[var(--border)]">
             <div className="grid grid-cols-[1fr_auto] items-end gap-3 border-b border-[var(--border)] px-4 py-3">
               <div>
@@ -478,91 +476,6 @@ export function LiveVoiceSession({
               ) : null}
             </details>
           </div>
-
-          <aside className="flex min-h-0 flex-col gap-3 overflow-y-auto">
-            <details
-              className="border border-[var(--border)] bg-[rgba(6,17,18,0.28)] px-4 py-3"
-              open={setupOpen}
-              onToggle={(event) => setSetupOpen(event.currentTarget.open)}
-            >
-              <summary className="flex cursor-pointer items-center justify-between gap-3">
-                <div>
-                  <p className="text-[10px] font-medium uppercase tracking-[0.06em] text-[var(--foreground-muted)]">
-                    Session setup
-                  </p>
-                  <p className="mt-1 text-[11px] text-[var(--foreground-muted)]">
-                    Optional page hints and startup steps.
-                  </p>
-                </div>
-                <Button type="button" tone="ghost">
-                  {setupOpen ? (
-                    <ChevronUp size={14} aria-hidden="true" />
-                  ) : (
-                    <ChevronDown size={14} aria-hidden="true" />
-                  )}
-                  {setupOpen ? "Hide" : "Show"}
-                </Button>
-              </summary>
-
-              <div className="mt-4 space-y-4">
-                <div className="space-y-3">
-                  <input
-                    value={pageTitle}
-                    onChange={(event) => setPageTitle(event.target.value)}
-                    placeholder="Optional page title"
-                    className={inputClassName}
-                  />
-                  <input
-                    value={pageUrl}
-                    onChange={(event) => setPageUrl(event.target.value)}
-                    placeholder="Optional page URL"
-                    className={inputClassName}
-                  />
-                </div>
-
-                <div className="border border-[var(--border)] bg-[rgba(6,17,18,0.35)] p-3">
-                  <ol className="space-y-2 text-[12px] leading-6 text-[var(--foreground-muted)]">
-                    <li>1. Start the live session.</li>
-                    <li>2. Pick a tab or screen.</li>
-                    <li>3. Allow microphone access.</li>
-                    <li>4. Speak while Verity watches the page.</li>
-                  </ol>
-                </div>
-              </div>
-            </details>
-
-            <details
-              className="border border-[var(--border)] bg-[rgba(6,17,18,0.28)] px-4 py-3"
-              open={detailsOpen}
-              onToggle={(event) => setDetailsOpen(event.currentTarget.open)}
-            >
-              <summary className="flex cursor-pointer items-center justify-between gap-3">
-                <div>
-                  <p className="text-[10px] font-medium uppercase tracking-[0.06em] text-[var(--foreground-muted)]">
-                    Runtime details
-                  </p>
-                  <p className="mt-1 text-[11px] text-[var(--foreground-muted)]">
-                    Model, transport, and stream state.
-                  </p>
-                </div>
-                <Button type="button" tone="ghost">
-                  {detailsOpen ? (
-                    <ChevronUp size={14} aria-hidden="true" />
-                  ) : (
-                    <ChevronDown size={14} aria-hidden="true" />
-                  )}
-                  {detailsOpen ? "Hide" : "Show"}
-                </Button>
-              </summary>
-
-              <div className="mt-4 flex flex-wrap gap-2">
-                <Pill label={liveConfig?.live.model ?? "live config unavailable"} />
-                <Pill label="audio modality" />
-                <Pill label="1 FPS screen frames" />
-                <Pill label="sendRealtimeInput" />
-              </div>
-            </details>
-          </aside>
         </section>
       </div>
     </main>
@@ -802,17 +715,6 @@ function tryGetHostname(url: string) {
     return INITIAL_PAGE.siteName;
   }
 }
-
-function Pill({ label }: { label: string }) {
-  return (
-    <span className="inline-flex h-9 items-center rounded-[1px] border border-[var(--border)] bg-[rgba(8,28,29,0.55)] px-3 font-mono text-[11px] text-[var(--foreground-muted)]">
-      {label}
-    </span>
-  );
-}
-
-const inputClassName =
-  "w-full border border-[var(--border)] bg-[rgba(5,19,20,0.7)] px-3 py-3 text-[12px] text-[var(--foreground)] outline-none transition placeholder:text-[var(--foreground-muted)] focus:border-[var(--border-strong)]";
 
 type ButtonTone = "accent" | "accent-soft" | "neutral" | "ghost";
 

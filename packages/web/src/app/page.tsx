@@ -26,7 +26,7 @@ const API_ORIGIN =
 
 const INITIAL_PAGE: PageContext = {
   url: "Screen share session",
-  title: "Current browsing session",
+  title: "Live screen share",
   siteName: "live-share",
   publishedAt: null,
   selectionText: null,
@@ -286,7 +286,7 @@ export default function Home() {
           </div>
         </header>
 
-        <section className="mt-4 grid min-h-0 flex-1 gap-4 overflow-hidden lg:grid-cols-[minmax(0,1fr)_280px]">
+        <section className="mt-4 min-h-0 flex-1 overflow-hidden">
           <div className="flex min-h-0 flex-col overflow-hidden rounded-[2rem] border border-black/8 bg-white shadow-[0_18px_60px_rgba(0,0,0,0.06)]">
             <div className="border-b border-stone-200 px-5 py-4">
               <p className="text-xs uppercase tracking-[0.28em] text-amber-700">Transcript</p>
@@ -345,45 +345,6 @@ export default function Home() {
               {snapshot.lastError ? <p className="mt-3 text-sm text-red-700">{snapshot.lastError}</p> : null}
             </div>
           </div>
-
-          <aside className="flex min-h-0 flex-col gap-4 overflow-y-auto rounded-[2rem] border border-black/8 bg-white p-4 shadow-[0_18px_60px_rgba(0,0,0,0.06)]">
-            <section className="space-y-3">
-              <p className="text-xs uppercase tracking-[0.28em] text-amber-700">Page hint</p>
-              <input
-                value={pageTitle}
-                onChange={(event) => setPageTitle(event.target.value)}
-                placeholder="Optional page title"
-                className={inputClassName}
-              />
-              <input
-                value={pageUrl}
-                onChange={(event) => setPageUrl(event.target.value)}
-                placeholder="Optional page URL"
-                className={inputClassName}
-              />
-              <p className="text-xs leading-5 text-stone-500">
-                These fields are optional hints. The real grounding path should come from the shared
-                screen and voice stream.
-              </p>
-            </section>
-
-            <section className="space-y-3 rounded-[1.5rem] bg-[#f7f1e6] p-4">
-              <p className="text-xs uppercase tracking-[0.28em] text-amber-700">What happens</p>
-              <ol className="space-y-2 text-sm leading-6 text-stone-700">
-                <li>1. Click the primary button.</li>
-                <li>2. Choose the browser tab or screen to share.</li>
-                <li>3. Allow microphone access.</li>
-                <li>4. Speak naturally while Verity watches the page.</li>
-              </ol>
-            </section>
-
-            <section className="space-y-2 text-xs text-stone-500">
-              <Pill label={liveConfig?.live.model ?? "live config unavailable"} />
-              <Pill label="audio modality" />
-              <Pill label="1 FPS screen frames" />
-              <Pill label="sendRealtimeInput" />
-            </section>
-          </aside>
         </section>
       </div>
     </main>
@@ -527,5 +488,3 @@ function Pill({ label }: { label: string }) {
   );
 }
 
-const inputClassName =
-  "w-full rounded-[1.1rem] border border-stone-300 bg-white px-4 py-3 text-sm text-stone-900 outline-none transition placeholder:text-stone-400 focus:border-amber-600 focus:ring-4 focus:ring-amber-200/60";

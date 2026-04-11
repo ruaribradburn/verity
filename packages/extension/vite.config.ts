@@ -16,6 +16,7 @@ export default defineConfig({
   build: {
     outDir: "dist",
     emptyOutDir: true,
+    assetsInlineLimit: 0,
     rollupOptions: {
       input: {
         sidepanel: path.resolve(__dirname, "sidepanel.html"),
