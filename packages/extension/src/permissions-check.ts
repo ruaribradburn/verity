@@ -21,15 +21,10 @@ export interface PermissionItem {
   grantable: boolean;
 }
 
-/** Core extension permissions (non-audio). */
+/** Core extension permissions. */
 const CORE_EXTENSION_PERMISSIONS: chrome.permissions.Permissions = {
   permissions: ["sidePanel", "storage", "tabs", "scripting", "activeTab", "search", "alarms", "tabGroups"],
 };
-
-/** Audio capture is checked separately — it's the one that often fails at Chrome level. */
-const AUDIO_CAPTURE_PERMISSION = {
-  permissions: ["audioCapture"],
-} as unknown as chrome.permissions.Permissions;
 
 /** Host permissions Verity needs for the local API. */
 const REQUIRED_HOST_PERMISSIONS: chrome.permissions.Permissions = {
@@ -42,7 +37,6 @@ const REQUIRED_HOST_PERMISSIONS: chrome.permissions.Permissions = {
 export async function checkAllPermissions(): Promise<PermissionStatus> {
   const items: PermissionItem[] = [];
 
-  // 1. Core extension permissions
   const hasCorePerms = await chromePermissionsContains(CORE_EXTENSION_PERMISSIONS);
   items.push({
     id: "extension",
@@ -52,17 +46,6 @@ export async function checkAllPermissions(): Promise<PermissionStatus> {
     grantable: true,
   });
 
-  // 2. Audio capture — the one Chrome often blocks at the extension level
-  const hasAudioCapture = await chromePermissionsContains(AUDIO_CAPTURE_PERMISSION);
-  items.push({
-    id: "audioCapture",
-    label: "Record audio (Chrome extension)",
-    description: "Chrome-level audio capture permission. If denied, open chrome://extensions \u2192 Verity \u2192 Details and enable it.",
-    granted: hasAudioCapture,
-    grantable: true,
-  });
-
-  // 3. Host permissions (API access)
   const hasHostPerms = await chromePermissionsContains(REQUIRED_HOST_PERMISSIONS);
   items.push({
     id: "host",
@@ -72,7 +55,6 @@ export async function checkAllPermissions(): Promise<PermissionStatus> {
     grantable: true,
   });
 
-  // 4. Microphone browser policy (separate from extension audioCapture)
   const micStatus = await queryBrowserPermission("microphone" as PermissionName);
   items.push({
     id: "microphone",
@@ -99,9 +81,6 @@ export async function requestMissingPermissions(current: PermissionStatus): Prom
       case "extension":
         await requestChromePermissions(CORE_EXTENSION_PERMISSIONS);
         break;
-      case "audioCapture":
-        await requestChromePermissions(AUDIO_CAPTURE_PERMISSION);
-        break;
       case "host":
         await requestChromePermissions(REQUIRED_HOST_PERMISSIONS);
         break;
@@ -111,31 +90,43 @@ export async function requestMissingPermissions(current: PermissionStatus): Prom
     }
   }
 
-  // Re-check everything after granting
   return checkAllPermissions();
 }
 
-/** Grant microphone access by doing a getUserMedia call. */
 async function requestMicrophoneAccess(): Promise<void> {
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     for (const track of stream.getTracks()) track.stop();
   } catch {
-    // User denied or no mic — will show as not granted on re-check
+    // User denied or no mic; re-check will report the current state.
   }
 }
 
 async function chromePermissionsContains(perms: chrome.permissions.Permissions): Promise<boolean> {
   if (typeof chrome === "undefined" || !chrome.permissions?.contains) return false;
   return new Promise<boolean>((resolve) => {
-    chrome.permissions.contains(perms, (has) => resolve(has === true));
+    chrome.permissions.contains(perms, (has) => {
+      if (chrome.runtime.lastError) {
+        console.warn("[verity/permissions] contains failed:", chrome.runtime.lastError.message);
+        resolve(false);
+        return;
+      }
+      resolve(has === true);
+    });
   });
 }
 
 async function requestChromePermissions(perms: chrome.permissions.Permissions): Promise<boolean> {
   if (typeof chrome === "undefined" || !chrome.permissions?.request) return false;
   return new Promise<boolean>((resolve) => {
-    chrome.permissions.request(perms, (granted) => resolve(granted === true));
+    chrome.permissions.request(perms, (granted) => {
+      if (chrome.runtime.lastError) {
+        console.warn("[verity/permissions] request failed:", chrome.runtime.lastError.message);
+        resolve(false);
+        return;
+      }
+      resolve(granted === true);
+    });
   });
 }
 
