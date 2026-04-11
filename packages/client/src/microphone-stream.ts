@@ -5,6 +5,9 @@ export type AttachMicOptions = {
   shouldSend?: () => boolean;
 };
 
+const MIC_WORKLET_NAME = "verity-microphone-capture";
+const MIC_WORKLET_MODULE_URL = new URL("./microphone-capture.worklet.js", import.meta.url);
+
 /**
  * Stream mic as 16 kHz PCM via `sendRealtimeInput` (Gemini Live requirement).
  * Always sends while connected — the Live session uses START_OF_ACTIVITY_INTERRUPTS for barge-in;
@@ -29,13 +32,18 @@ export async function attachMicrophoneToLiveSession(
   });
 
   const source = audioContext.createMediaStreamSource(stream);
-  const processor = audioContext.createScriptProcessor(4096, 1, 1);
   const mute = audioContext.createGain();
   mute.gain.value = 0;
+  await audioContext.audioWorklet.addModule(MIC_WORKLET_MODULE_URL.href);
+  const processor = new AudioWorkletNode(audioContext, MIC_WORKLET_NAME, {
+    numberOfInputs: 1,
+    numberOfOutputs: 1,
+    channelCount: 1,
+  });
 
-  processor.onaudioprocess = (event) => {
+  processor.port.onmessage = (event: MessageEvent<Float32Array>) => {
     if (options?.shouldSend && !options.shouldSend()) return;
-    const input = event.inputBuffer.getChannelData(0);
+    const input = event.data;
     const pcm16 = downsampleToPcm16(input, audioContext.sampleRate, 16000);
     if (pcm16.byteLength === 0) return;
     manager.sendAudioChunk(pcm16ToBase64(pcm16));
@@ -47,6 +55,7 @@ export async function attachMicrophoneToLiveSession(
 
   return () => {
     manager.sendAudioStreamEnd();
+    processor.port.onmessage = null;
     processor.disconnect();
     source.disconnect();
     mute.disconnect();

@@ -329,6 +329,7 @@ export function buildLiveSystemInstruction(page: PageContext | null) {
     "Epistemic stance: stay concise, factual, neutral, informative, and direct. Give a depolarized analytical briefing, not a verdict. Prefer evidence-weighted language about support, uncertainty, disagreement, and limits. Do not say or imply 'this is true' or 'this is false' unless the evidence shown is unusually clear and you still state the basis and limits.",
     "Grounding rules: stay grounded in the live page, screen context, the user's question, and the tools actually available in this session. Explicitly distinguish between what the page shows, what it suggests, and what it does not establish. Do not invent unseen sources, hidden browsing steps, or capabilities beyond live page context and Google Search grounding.",
     "Research rules: when outside verification would materially help, actively use Google Search grounding to seek multiple vetted sources and contrasting perspectives. Prefer high-quality reporting such as Reuters, BBC News, Financial Times, relevant local reporting, and credible alternative perspectives when available. Name important source limits when the evidence base is narrow, stale, partisan, or second-hand.",
+    "Source diversity: when research sources are provided, draw on the widest available range — wire services, public broadcasters, regional/local outlets, social discussion, video, and analysis. Note source type when it affects credibility (e.g. state-affiliated media, tabloid framing). Prefer corroboration across source types over volume from a single type.",
     "Delivery rules: keep answers ideally under 3 sentences unless the user explicitly asks for more. Lead with the clearest useful takeaway, then give only the highest-signal supporting point or two. Keep any humour dry and brief. Do not be sycophantic, flattering, preachy, hectoring, or prescriptive.",
     "Interaction rules: do not agree with the user reflexively. If the user's question contains an explicit bias, loaded framing, or a weak premise, acknowledge that professionally and, when appropriate, challenge it directly. When the available evidence points against the user's framing, say so plainly.",
     "Language rules: use natural British English. If the user asks for another language, keep the same analytical stance and preserve uncertainty rather than making stronger claims in translation.",
@@ -423,6 +424,111 @@ export function runFixtureAssertions(): Array<{ name: string; passed: boolean; d
     },
   ];
 }
+
+// ── Multi-agent shared schema (PDR §4.6, §6.2) ─────────────────────
+
+/** A single claim extracted from page content by the extraction agent. */
+export type Claim = {
+  id: string;
+  text: string;
+  sourcePageUrl: string;
+  confidence: "high" | "medium" | "low";
+  category: "factual" | "opinion" | "prediction" | "framing";
+};
+
+/** An entity extracted via NER by the extraction agent. */
+export type Entity = {
+  id: string;
+  name: string;
+  type: "person" | "organization" | "location" | "event" | "concept";
+  mentions: Array<{ pageUrl: string; snippet: string }>;
+};
+
+/** A bias signal detected by the analysis agent. */
+export type BiasSignal = {
+  type: "political-lean" | "emotional-language" | "framing-technique" | "omission" | "source-selection";
+  description: string;
+  severity: "high" | "medium" | "low";
+  evidence: string;
+  claimIds: string[];
+};
+
+/** A credibility score for a source page. */
+export type CredibilityScore = {
+  pageUrl: string;
+  score: number; // 0-1
+  rationale: string;
+  caveats: string[];
+};
+
+/** An evidence bundle linking claims to supporting/contradicting sources. */
+export type EvidenceBundle = {
+  claimId: string;
+  supports: Array<{ sourceUrl: string; snippet: string; strength: "strong" | "moderate" | "weak" }>;
+  contradicts: Array<{ sourceUrl: string; snippet: string; strength: "strong" | "moderate" | "weak" }>;
+  unresolved: boolean;
+};
+
+/** The shared context that all agents read/write (PDR §4.6 "shared context"). */
+export type AnalysisContext = {
+  sessionId: string;
+  pages: PageContext[];
+  claims: Claim[];
+  entities: Entity[];
+  biasSignals: BiasSignal[];
+  evidenceBundles: EvidenceBundle[];
+  credibilityScores: CredibilityScore[];
+  language: string;
+};
+
+/** The 6-section briefing output format (PDR §5.3). */
+export type Briefing = {
+  summary: string;
+  framingAndBias: string;
+  evidenceAndCredibility: string;
+  entitiesAndRelationships: string;
+  missingContextAndOpposing: string;
+  whatToReadNext: string;
+  metadata: {
+    sessionId: string;
+    agentContributions: Array<{ agent: string; summary: string }>;
+    confidence: "high" | "medium" | "low";
+    languages: string[];
+    durationMs: number;
+  };
+};
+
+/** Typed envelope for agent results used by the orchestrator. */
+export type AgentResult<T> = {
+  agent: string;
+  durationMs: number;
+  ok: boolean;
+  data: T | null;
+  error: string | null;
+};
+
+/** Request to the full orchestrated analysis pipeline. */
+export type OrchestrationRequest = {
+  pages: PageContext[];
+  userPrompt: string;
+  mode: AnalysisMode;
+  researchContexts?: PageContext[];
+};
+
+/** Response from the full orchestrated analysis pipeline. */
+export type OrchestrationResponse =
+  | {
+      ok: true;
+      briefing: Briefing;
+      context: AnalysisContext;
+      agents: Array<AgentResult<unknown>>;
+    }
+  | {
+      ok: false;
+      error: string;
+      partialContext: AnalysisContext | null;
+      agents: Array<AgentResult<unknown>>;
+    };
 
 function inspectPageSignals(contentText: string): AnalysisSignals {
   const lowered = contentText.toLowerCase();
