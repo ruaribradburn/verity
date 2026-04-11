@@ -25,13 +25,18 @@ import {
 } from "../core";
 
 function parseCorsOrigins(raw: string | undefined): string[] {
-  if (!raw?.trim()) {
-    return ["http://localhost:3000", "http://127.0.0.1:3000"];
+  const origins = !raw?.trim()
+    ? ["http://localhost:3000", "http://127.0.0.1:3000"]
+    : raw
+        .split(",")
+        .map((value) => value.trim().replace(/\/$/, ""))
+        .filter(Boolean);
+
+  if (process.env.VERITY_ALLOW_EXTENSION_CORS === "1") {
+    console.log("[verity/api] Extension CORS enabled — chrome-extension:// origins will be allowed");
   }
-  return raw
-    .split(",")
-    .map((value) => value.trim().replace(/\/$/, ""))
-    .filter(Boolean);
+
+  return origins;
 }
 
 function normalizeRequest(input: Partial<AnalysisRequest>): AnalysisRequest {
@@ -66,7 +71,17 @@ const geminiApiKey = resolveGeminiApiKey(process.env);
 app.use(
   "/*",
   cors({
-    origin: allowedOrigins,
+    origin: (origin) => {
+      if (!origin) return allowedOrigins[0];
+      if (allowedOrigins.includes(origin)) return origin;
+      if (
+        process.env.VERITY_ALLOW_EXTENSION_CORS === "1" &&
+        origin.startsWith("chrome-extension://")
+      ) {
+        return origin;
+      }
+      return null;
+    },
   }),
 );
 
@@ -83,6 +98,7 @@ app.get("/health", (c) => {
 app.get("/fixtures", (c) => c.json({ ok: true, fixtures: createFixtureRequests() }));
 
 app.get("/live/config", (c) => {
+  console.log("[verity/api] GET /live/config from origin:", c.req.header("origin") ?? "none");
   const body: LiveConfigHttpResponse = {
     ok: true,
     live: createLiveConfigSummary(),
@@ -93,7 +109,10 @@ app.get("/live/config", (c) => {
 });
 
 app.post("/live/token", async (c) => {
+  console.log("[verity/api] POST /live/token from origin:", c.req.header("origin") ?? "none");
+
   if (!geminiApiKey) {
+    console.warn("[verity/api] POST /live/token — GEMINI_API_KEY not set, returning 503");
     const body: LiveTokenHttpResponse = {
       ok: false,
       authMode: "unavailable",
@@ -142,6 +161,7 @@ app.post("/live/token", async (c) => {
       throw new Error("Gemini did not return an ephemeral token name.");
     }
 
+    console.log("[verity/api] POST /live/token — ephemeral token created successfully");
     const body: LiveTokenHttpResponse = {
       ok: true,
       authMode: "ephemeral-token",
@@ -156,6 +176,7 @@ app.post("/live/token", async (c) => {
     };
     return c.json(body);
   } catch (error) {
+    console.error("[verity/api] POST /live/token — token creation failed:", error instanceof Error ? error.message : error);
     const body: LiveTokenHttpResponse = {
       ok: false,
       authMode: "unavailable",

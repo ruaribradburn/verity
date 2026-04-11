@@ -73,13 +73,24 @@ export function createLiveSessionManager(options: ManagerOptions): LiveSessionMa
   }
 
   async function fetchEphemeralToken() {
-    const res = await fetch(`${options.apiOrigin}/live/token`, {
-      method: "POST",
-    });
+    console.log("[verity/live] Fetching ephemeral token from:", `${options.apiOrigin}/live/token`);
+    let res: Response;
+    try {
+      res = await fetch(`${options.apiOrigin}/live/token`, {
+        method: "POST",
+      });
+    } catch (err) {
+      console.error("[verity/live] Network error fetching token — is the API server running?", err);
+      throw new Error(`Cannot reach API at ${options.apiOrigin}/live/token. Is the server running?`);
+    }
+    console.log("[verity/live] Token response status:", res.status);
     const body = (await res.json()) as LiveTokenHttpResponse;
     if (!res.ok || !body.ok) {
-      throw new Error(body.ok ? "Failed to fetch ephemeral token." : body.error);
+      const msg = body.ok ? "Failed to fetch ephemeral token." : body.error;
+      console.error("[verity/live] Token request failed:", msg);
+      throw new Error(msg);
     }
+    console.log("[verity/live] Ephemeral token obtained successfully");
     return body;
   }
 
@@ -138,6 +149,7 @@ export function createLiveSessionManager(options: ManagerOptions): LiveSessionMa
 
   return {
     async connect(page) {
+      console.log("[verity/live] Connecting live session to:", options.apiOrigin);
       state = "connecting";
       partialUserTranscript = "";
       partialAssistantTranscript = "";
@@ -185,6 +197,7 @@ export function createLiveSessionManager(options: ManagerOptions): LiveSessionMa
         },
         callbacks: {
           onopen: () => {
+            console.log("[verity/live] Gemini Live WebSocket connected");
             state = "connected";
             emitSnapshot();
           },
@@ -192,17 +205,20 @@ export function createLiveSessionManager(options: ManagerOptions): LiveSessionMa
             queue.put(message);
           },
           onerror: (error) => {
+            console.error("[verity/live] Gemini Live WebSocket error:", error.message);
             state = "error";
             lastError = error.message;
             emitSnapshot();
           },
           onclose: () => {
+            console.log("[verity/live] Gemini Live WebSocket closed");
             state = "disconnected";
             emitSnapshot();
           },
         },
       });
 
+      console.log("[verity/live] Live session ready — state: listening");
       state = "listening";
       emitSnapshot();
       void processMessages();
