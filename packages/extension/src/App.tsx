@@ -32,6 +32,14 @@ export default function App() {
   const [voiceResearch, setVoiceResearch] = useState<VoiceResearchStatus>({ phase: "idle" });
   const voiceResearchRef = useRef(voiceResearch);
   voiceResearchRef.current = voiceResearch;
+  const autoTriggerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Clean up auto-trigger timer on unmount
+  useEffect(() => {
+    return () => {
+      if (autoTriggerTimerRef.current) clearTimeout(autoTriggerTimerRef.current);
+    };
+  }, []);
   /** Capture what Gemini said in its immediate (grounding-only) response for cross-referencing. */
   const immediateResponseRef = useRef("");
   const pendingToolCallRef = useRef<{ id: string; name: string } | null>(null);
@@ -228,8 +236,71 @@ export default function App() {
     }
   }
 
+  const handleUserTurnComplete = useCallback((text: string) => {
+    // Don't auto-trigger if research is already running (from tool call or previous auto-trigger)
+    if (voiceResearchRef.current.phase === "researching") return;
+    // Don't trigger for short utterances
+    if (text.length < 20) return;
+
+    // Extract URLs from user speech and auto-research them
+    const spokenUrls = extractUrls(text);
+    if (spokenUrls.length > 0) {
+      console.log("[verity/ext] URLs detected in speech, auto-researching:", spokenUrls);
+      if (autoTriggerTimerRef.current) clearTimeout(autoTriggerTimerRef.current);
+
+      setVoiceResearch({
+        phase: "researching",
+        query: `Reading ${spokenUrls.length} link(s) from speech...`,
+        pagesRead: 0,
+        totalPages: spokenUrls.length,
+        status: `Fetching ${spokenUrls.length} link(s)`,
+        recentSources: [],
+      });
+
+      chrome.runtime.sendMessage({
+        type: "research:start",
+        source: "urls",
+        urls: spokenUrls,
+      });
+      return;
+    }
+
+    // Only auto-trigger for analytical queries
+    if (!isAnalyticalQuery(text)) return;
+
+    // Give Gemini 3 seconds to call a tool itself. If it doesn't, auto-trigger.
+    if (autoTriggerTimerRef.current) clearTimeout(autoTriggerTimerRef.current);
+    autoTriggerTimerRef.current = setTimeout(() => {
+      // Check again — Gemini might have called a tool in the meantime
+      if (voiceResearchRef.current.phase !== "idle") return;
+
+      console.log("[verity/ext] Auto-triggering research (Gemini did not call tools):", text.slice(0, 80));
+
+      setVoiceResearch({
+        phase: "researching",
+        query: text,
+        pagesRead: 0,
+        totalPages: 0,
+        status: "Auto-triggered deep research...",
+        recentSources: [],
+      });
+
+      chrome.runtime.sendMessage({
+        type: "research:start",
+        source: "query",
+        query: text,
+      });
+    }, 3000);
+  }, []);
+
   const handleToolCall = useCallback(
     (call: { id: string; name: string; args: Record<string, unknown> }, manager: LiveSessionManager) => {
+      // Cancel auto-trigger timer since Gemini called a tool explicitly
+      if (autoTriggerTimerRef.current) {
+        clearTimeout(autoTriggerTimerRef.current);
+        autoTriggerTimerRef.current = null;
+      }
+
       // Don't stack concurrent research
       if (voiceResearchRef.current.phase === "researching") {
         manager.sendToolResponse(call.id, call.name, {
@@ -253,6 +324,31 @@ export default function App() {
         case "research_entity":
           query = `${String(call.args.entity_name ?? "")} ${String(call.args.context ?? "")}`.trim();
           break;
+        case "research_url": {
+          const rawUrls = String(call.args.urls ?? "");
+          const parsedUrls = rawUrls.split(",").map(u => u.trim()).filter(u => /^https?:\/\//i.test(u));
+          if (parsedUrls.length === 0) {
+            manager.sendToolResponse(call.id, call.name, { error: "No valid URLs provided." });
+            return;
+          }
+          query = parsedUrls[0]; // Use first URL as the display query
+          // Store URLs for the research:start message
+          pendingToolCallRef.current = { id: call.id, name: call.name };
+          setVoiceResearch({
+            phase: "researching",
+            query: `Reading ${parsedUrls.length} URL(s)...`,
+            pagesRead: 0,
+            totalPages: parsedUrls.length,
+            status: `Fetching ${parsedUrls.length} link(s)`,
+            recentSources: [],
+          });
+          chrome.runtime.sendMessage({
+            type: "research:start",
+            source: "urls",
+            urls: parsedUrls,
+          });
+          return; // Early return since we handled everything including the message send
+        }
         default:
           manager.sendToolResponse(call.id, call.name, { error: `Unknown function: ${call.name}` });
           return;
@@ -297,12 +393,35 @@ export default function App() {
         initialPageUrl={tabHint?.url}
         initialPageTitle={tabHint?.title}
         prepareLiveMediaCapture={ensureLiveSessionMediaPolicy}
+        onUserTurnComplete={handleUserTurnComplete}
         onToolCall={handleToolCall}
         onManagerReady={handleManagerReady}
         inlineCard={researchInlineCard}
       />
     </div>
   );
+}
+
+/** Detect if a user utterance is analytical and should trigger research. */
+function isAnalyticalQuery(text: string): boolean {
+  const lower = text.toLowerCase();
+  // Analytical intent signals
+  const analyticalTerms = [
+    "analyze", "analyse", "analysis",
+    "what do you think", "is this true", "is that true", "is this accurate",
+    "fact check", "fact-check", "verify", "check this",
+    "what's missing", "what am i missing", "missing context",
+    "bias", "biased", "framing", "misleading",
+    "evidence", "source", "credib", "reliab",
+    "opposing view", "other side", "counterargument", "counter-argument",
+    "research", "investigate", "look into", "dig into",
+    "what does the data say", "what do experts say",
+    "is this real", "debunk", "claim",
+    "article", "news", "report says", "according to",
+    "who is", "what is the background", "tell me about",
+    "compare", "contrast", "different perspective",
+  ];
+  return analyticalTerms.some((term) => lower.includes(term));
 }
 
 function buildResearchInlineCard(status: VoiceResearchStatus): LiveInlineCard | null {
@@ -376,4 +495,12 @@ function tryHostname(url: string): string {
   } catch {
     return url;
   }
+}
+
+/** Extract HTTP(S) URLs from text (spoken or typed). */
+function extractUrls(text: string): string[] {
+  const urlRegex = /https?:\/\/[^\s,)"']+/gi;
+  const matches = text.match(urlRegex);
+  if (!matches) return [];
+  return [...new Set(matches.map(u => u.replace(/[.)]+$/, "")))];
 }

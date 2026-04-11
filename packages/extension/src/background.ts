@@ -30,7 +30,7 @@ chrome.runtime.onMessage.addListener(
     }
 
     if (message.type === "research:start") {
-      console.log("[verity/bg] Research request:", message.source, message.source === "query" ? message.query : `tab ${message.tabId}`);
+      console.log("[verity/bg] Research request:", message.source, message.source === "query" ? message.query : message.source === "urls" ? `${message.urls.length} URLs` : `tab ${message.tabId}`);
 
       const broadcast = (event: ResearchEvent) => {
         console.log("[verity/bg]", event.type);
@@ -40,7 +40,9 @@ chrome.runtime.onMessage.addListener(
       const request =
         message.source === "page"
           ? { source: "page" as const, tabId: message.tabId }
-          : { source: "query" as const, query: message.query };
+          : message.source === "urls"
+            ? { source: "urls" as const, urls: message.urls }
+            : { source: "query" as const, query: message.query };
 
       let aborted = false;
       cancelResearch = () => {

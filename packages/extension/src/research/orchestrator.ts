@@ -13,7 +13,8 @@ type BroadcastFn = (event: ResearchEvent) => void;
 export async function runResearch(
   request:
     | { source: "page"; tabId: number }
-    | { source: "query"; query: string },
+    | { source: "query"; query: string }
+    | { source: "urls"; urls: string[] },
   broadcast: BroadcastFn,
 ): Promise<void> {
   const state: ResearchState = {
@@ -68,6 +69,35 @@ export async function runResearch(
         pagesRead: 1,
         totalPages: 0,
       });
+    } else if (request.source === "urls") {
+      broadcast({
+        type: "research:progress",
+        status: `Reading ${request.urls.length} provided URL(s)...`,
+        pagesRead: 0,
+        totalPages: request.urls.length,
+      });
+
+      const seedUrls = request.urls.map((url) => ({ url, title: url }));
+      state.totalPages = seedUrls.length;
+
+      await readPagesInParallel(seedUrls, state, broadcast);
+
+      const firstContext = state.contexts[0];
+      if (firstContext && firstContext.contentText) {
+        queries = deriveSearchQueries({
+          title: firstContext.title,
+          contentText: firstContext.contentText,
+        });
+
+        broadcast({
+          type: "research:progress",
+          status: `Derived ${queries.length} search queries from seed URLs`,
+          pagesRead: state.pagesRead,
+          totalPages: state.totalPages,
+        });
+      } else {
+        queries = [];
+      }
     } else {
       // Voice-triggered: derive diverse queries from the spoken text,
       // keeping the original query as the lead so it always runs.
