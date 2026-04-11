@@ -241,6 +241,30 @@ export default function App() {
     if (voiceResearchRef.current.phase === "researching") return;
     // Don't trigger for short utterances
     if (text.length < 20) return;
+
+    // Extract URLs from user speech and auto-research them
+    const spokenUrls = extractUrls(text);
+    if (spokenUrls.length > 0) {
+      console.log("[verity/ext] URLs detected in speech, auto-researching:", spokenUrls);
+      if (autoTriggerTimerRef.current) clearTimeout(autoTriggerTimerRef.current);
+
+      setVoiceResearch({
+        phase: "researching",
+        query: `Reading ${spokenUrls.length} link(s) from speech...`,
+        pagesRead: 0,
+        totalPages: spokenUrls.length,
+        status: `Fetching ${spokenUrls.length} link(s)`,
+        recentSources: [],
+      });
+
+      chrome.runtime.sendMessage({
+        type: "research:start",
+        source: "urls",
+        urls: spokenUrls,
+      });
+      return;
+    }
+
     // Only auto-trigger for analytical queries
     if (!isAnalyticalQuery(text)) return;
 
@@ -300,6 +324,31 @@ export default function App() {
         case "research_entity":
           query = `${String(call.args.entity_name ?? "")} ${String(call.args.context ?? "")}`.trim();
           break;
+        case "research_url": {
+          const rawUrls = String(call.args.urls ?? "");
+          const parsedUrls = rawUrls.split(",").map(u => u.trim()).filter(u => /^https?:\/\//i.test(u));
+          if (parsedUrls.length === 0) {
+            manager.sendToolResponse(call.id, call.name, { error: "No valid URLs provided." });
+            return;
+          }
+          query = parsedUrls[0]; // Use first URL as the display query
+          // Store URLs for the research:start message
+          pendingToolCallRef.current = { id: call.id, name: call.name };
+          setVoiceResearch({
+            phase: "researching",
+            query: `Reading ${parsedUrls.length} URL(s)...`,
+            pagesRead: 0,
+            totalPages: parsedUrls.length,
+            status: `Fetching ${parsedUrls.length} link(s)`,
+            recentSources: [],
+          });
+          chrome.runtime.sendMessage({
+            type: "research:start",
+            source: "urls",
+            urls: parsedUrls,
+          });
+          return; // Early return since we handled everything including the message send
+        }
         default:
           manager.sendToolResponse(call.id, call.name, { error: `Unknown function: ${call.name}` });
           return;
@@ -446,4 +495,12 @@ function tryHostname(url: string): string {
   } catch {
     return url;
   }
+}
+
+/** Extract HTTP(S) URLs from text (spoken or typed). */
+function extractUrls(text: string): string[] {
+  const urlRegex = /https?:\/\/[^\s,)"']+/gi;
+  const matches = text.match(urlRegex);
+  if (!matches) return [];
+  return [...new Set(matches.map(u => u.replace(/[.)]+$/, "")))];
 }

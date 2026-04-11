@@ -12,6 +12,12 @@ export type ResearchStartFromQuery = {
   query: string;
 };
 
+export type ResearchStartFromUrls = {
+  type: "research:start";
+  source: "urls";
+  urls: string[];
+};
+
 export type ResearchCancel = {
   type: "research:cancel";
 };
@@ -19,6 +25,7 @@ export type ResearchCancel = {
 export type ResearchRequest =
   | ResearchStartFromPage
   | ResearchStartFromQuery
+  | ResearchStartFromUrls
   | ResearchCancel;
 
 export type ResearchProgress = {
