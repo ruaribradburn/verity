@@ -4,6 +4,7 @@ import {
   GEMINI_LIVE_API_VERSION,
   GEMINI_LIVE_MODEL,
   accumulateTranscript,
+  buildLivePageSeed,
   buildLiveSystemInstruction,
   createLiveConfigSummary,
   type LiveTokenHttpResponse,
@@ -39,6 +40,13 @@ type ManagerOptions = {
 
 type LiveSessionHandle = {
   close(): void;
+  sendClientContent(payload: {
+    turns: Array<{
+      role: "user" | "model";
+      parts: Array<{ text: string }>;
+    }>;
+    turnComplete?: boolean;
+  }): void;
   sendRealtimeInput(
     payload:
       | { text: string }
@@ -219,6 +227,18 @@ export function createLiveSessionManager(options: ManagerOptions): LiveSessionMa
       });
 
       console.log("[verity/live] Live session ready — state: listening");
+      if (page.contentText.trim()) {
+        session.sendClientContent({
+          turns: [
+            {
+              role: "user",
+              parts: [{ text: buildLivePageSeed(page) }],
+            },
+          ],
+          turnComplete: false,
+        });
+      }
+
       state = "listening";
       emitSnapshot();
       void processMessages();

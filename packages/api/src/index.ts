@@ -1,3 +1,5 @@
+import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { serve } from "@hono/node-server";
 import { GoogleGenAI, Modality } from "@google/genai";
 import { Hono } from "hono";
@@ -13,12 +15,38 @@ import {
   createLiveConfigSummary,
   resolveGeminiApiKey,
   runFixtureAssertions,
+  type PageHydrationHttpRequest,
+  type PageHydrationHttpResponse,
   type AnalysisRequest,
   type AnalyzeHttpResponse,
   type HealthResponse,
   type LiveConfigHttpResponse,
   type LiveTokenHttpResponse,
 } from "@packages/core";
+
+const URL_RESOLUTION_MODEL = "gemini-2.5-flash";
+const TRAFILATURA_SCRIPT_PATH = fileURLToPath(new URL("../../../scripts/trafilatura_extract.py", import.meta.url));
+
+type ScreenResolution = {
+  url: string | null;
+  title: string | null;
+  confidence: "high" | "medium" | "low";
+  rationale: string;
+};
+
+type TrafilaturaResult =
+  | {
+      ok: true;
+      url: string;
+      title: string | null;
+      siteName: string | null;
+      publishedAt: string | null;
+      contentText: string;
+    }
+  | {
+      ok: false;
+      error: string;
+    };
 
 function parseCorsOrigins(raw: string | undefined): string[] {
   const origins = !raw?.trim()
@@ -48,6 +76,123 @@ function normalizeRequest(input: Partial<AnalysisRequest>): AnalysisRequest {
       selectionText: input.page?.selectionText ?? null,
     }),
   };
+}
+
+function normalizeHttpUrl(value: string | null | undefined) {
+  if (!value?.trim()) return null;
+
+  try {
+    const normalized = new URL(value.trim());
+    if (normalized.protocol !== "http:" && normalized.protocol !== "https:") {
+      return null;
+    }
+    return normalized.toString();
+  } catch {
+    return null;
+  }
+}
+
+function normalizeOptionalText(value: string | null | undefined) {
+  const normalized = value?.trim();
+  return normalized ? normalized : null;
+}
+
+function parseResolutionPayload(raw: string) {
+  try {
+    return JSON.parse(raw) as Partial<ScreenResolution>;
+  } catch {
+    return null;
+  }
+}
+
+async function resolvePageFromScreen(params: {
+  apiKey: string;
+  screenshotBase64: string;
+  hintedTitle?: string | null;
+}): Promise<ScreenResolution> {
+  const ai = new GoogleGenAI({ apiKey: params.apiKey });
+  const response = await ai.models.generateContent({
+    model: URL_RESOLUTION_MODEL,
+    contents: [
+      {
+        role: "user",
+        parts: [
+          {
+            text:
+              "You are extracting the current webpage from a browser screenshot. " +
+              "Return strict JSON with keys url, title, confidence, rationale. " +
+              "Prefer the address bar URL if visible. Only return a URL when it is clearly readable and looks like a web page. " +
+              `If the title is visible, include it. Hinted title: ${params.hintedTitle ?? "none"}.`,
+          },
+          {
+            inlineData: {
+              mimeType: "image/jpeg",
+              data: params.screenshotBase64,
+            },
+          },
+        ],
+      },
+    ],
+    config: {
+      responseMimeType: "application/json",
+      temperature: 0,
+    },
+  });
+
+  const parsed = parseResolutionPayload(response.text ?? "");
+  const confidence =
+    parsed?.confidence === "high" || parsed?.confidence === "medium" || parsed?.confidence === "low"
+      ? parsed.confidence
+      : "low";
+
+  return {
+    url: normalizeHttpUrl(parsed?.url),
+    title: normalizeOptionalText(parsed?.title),
+    confidence,
+    rationale: normalizeOptionalText(parsed?.rationale) ?? "No rationale returned.",
+  };
+}
+
+async function runTrafilatura(url: string): Promise<TrafilaturaResult> {
+  const python = process.env.PYTHON_BIN?.trim() || "python";
+
+  return await new Promise<TrafilaturaResult>((resolve, reject) => {
+    const child = spawn(python, [TRAFILATURA_SCRIPT_PATH, url], {
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+
+    let stdout = "";
+    let stderr = "";
+
+    child.stdout.on("data", (chunk) => {
+      stdout += String(chunk);
+    });
+
+    child.stderr.on("data", (chunk) => {
+      stderr += String(chunk);
+    });
+
+    child.on("error", (error) => {
+      reject(error);
+    });
+
+    child.on("close", () => {
+      try {
+        const parsed = JSON.parse(stdout || "{}") as TrafilaturaResult;
+        if ("ok" in parsed) {
+          resolve(parsed);
+          return;
+        }
+      } catch {
+        // fall through to structured error below
+      }
+
+      resolve({
+        ok: false,
+        error: normalizeOptionalText(stderr) ?? "Trafilatura extraction failed.",
+      });
+    });
+  });
 }
 
 const apiPort = Number(process.env.API_PORT ?? process.env.PORT) || API_DEFAULT_PORT;
@@ -164,6 +309,126 @@ app.post("/live/token", async (c) => {
     };
     return c.json(body, 500);
   }
+});
+
+app.post("/page/context", async (c) => {
+  let payload: PageHydrationHttpRequest;
+  try {
+    payload = await c.req.json();
+  } catch {
+    return c.json({ ok: false, error: "Invalid JSON body.", warnings: [] } satisfies PageHydrationHttpResponse, 400);
+  }
+
+  const warnings: string[] = [];
+  const hintedUrl = normalizeHttpUrl(payload.hintedUrl);
+  const hintedTitle = normalizeOptionalText(payload.hintedTitle);
+  const selectionText = normalizeOptionalText(payload.selectionText);
+
+  let source: "hint" | "screen" = "hint";
+  let resolvedUrl = hintedUrl;
+  let resolvedTitle = hintedTitle;
+
+  if (!resolvedUrl) {
+    if (!payload.screenshotBase64?.trim()) {
+      return c.json(
+        {
+          ok: false,
+          error: "A screenshot or hinted URL is required to resolve the current page.",
+          warnings,
+        } satisfies PageHydrationHttpResponse,
+        400,
+      );
+    }
+
+    if (!geminiApiKey) {
+      return c.json(
+        {
+          ok: false,
+          error: "Cannot resolve the current page from screen share without a server-side GEMINI_API_KEY.",
+          warnings,
+        } satisfies PageHydrationHttpResponse,
+        503,
+      );
+    }
+
+    const resolved = await resolvePageFromScreen({
+      apiKey: geminiApiKey,
+      screenshotBase64: payload.screenshotBase64,
+      hintedTitle,
+    });
+
+    resolvedUrl = resolved.url;
+    resolvedTitle = resolved.title ?? hintedTitle;
+    source = "screen";
+
+    if (resolved.confidence !== "high") {
+      warnings.push(`Screen URL resolution confidence was ${resolved.confidence}: ${resolved.rationale}`);
+    }
+  }
+
+  if (!resolvedUrl) {
+    return c.json(
+      {
+        ok: false,
+        error: "Could not resolve a valid http(s) page URL from the current screen.",
+        warnings,
+      } satisfies PageHydrationHttpResponse,
+      422,
+    );
+  }
+
+  let extraction: TrafilaturaResult;
+  try {
+    extraction = await runTrafilatura(resolvedUrl);
+  } catch (error) {
+    return c.json(
+      {
+        ok: false,
+        error: error instanceof Error ? error.message : "Failed to invoke trafilatura.",
+        warnings,
+      } satisfies PageHydrationHttpResponse,
+      500,
+    );
+  }
+
+  if (!extraction.ok) {
+    return c.json(
+      {
+        ok: false,
+        error: extraction.error,
+        warnings,
+      } satisfies PageHydrationHttpResponse,
+      502,
+    );
+  }
+
+  const page = buildPageContext({
+    url: extraction.url,
+    title: extraction.title ?? resolvedTitle,
+    siteName: extraction.siteName,
+    publishedAt: extraction.publishedAt,
+    contentText: extraction.contentText,
+    selectionText,
+  });
+
+  if (!page.contentText.trim()) {
+    return c.json(
+      {
+        ok: false,
+        error: "Trafilatura did not return any readable page text for the resolved URL.",
+        warnings,
+      } satisfies PageHydrationHttpResponse,
+      502,
+    );
+  }
+
+  return c.json({
+    ok: true,
+    source,
+    resolvedUrl: extraction.url,
+    page,
+    warnings,
+  } satisfies PageHydrationHttpResponse);
 });
 
 app.get("/validate", (c) =>

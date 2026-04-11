@@ -11,7 +11,9 @@
   },
   "dependencies": {
     "@google/genai": "^1.48.0",
+    "@packages/client": "workspace:*",
     "@packages/core": "workspace:*",
+    "dotenv": "^16.4.7",
     "next": "16.2.3",
     "react": "19.2.4",
     "react-dom": "19.2.4"
