@@ -213,12 +213,14 @@ export function createLiveSessionManager(options: ManagerOptions): LiveSessionMa
             parts: [{ text: buildLiveSystemInstruction(page) }],
           },
           speechConfig: {
+            languageCode: liveDefaults.speechLanguageCode,
             voiceConfig: {
               prebuiltVoiceConfig: {
                 voiceName: liveDefaults.voiceName,
               },
             },
           },
+          temperature: liveDefaults.temperature,
           inputAudioTranscription: {},
           outputAudioTranscription: {},
           realtimeInputConfig: {
