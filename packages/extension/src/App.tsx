@@ -1,6 +1,5 @@
 import { LiveVoiceSession, type LiveSessionManager } from "@packages/client";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ResearchPanel } from "./components/ResearchPanel";
 import { ensureLiveSessionMediaPolicy } from "./media-permissions";
 import type { ResearchEvent, ResearchComplete } from "./research/types";
 
@@ -115,8 +114,6 @@ export default function App() {
 
   return (
     <div className="flex flex-col gap-4 p-3">
-      <ResearchPanel />
-
       {/* Voice-triggered research status indicator */}
       {voiceResearch.phase === "researching" && (
         <div className="rounded-xl border border-amber-700/30 bg-amber-950/40 px-4 py-3">
