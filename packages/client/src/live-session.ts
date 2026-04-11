@@ -94,7 +94,9 @@ export function createLiveSessionManager(options: ManagerOptions): LiveSessionMa
     console.log("[verity/live] Token response status:", res.status);
     const body = (await res.json()) as LiveTokenHttpResponse;
     if (!res.ok || !body.ok) {
-      const msg = body.ok ? "Failed to fetch ephemeral token." : body.error;
+      const msg = body.ok
+        ? `Failed to fetch ephemeral token (HTTP ${res.status}).`
+        : [body.error, ...body.warnings].filter(Boolean).join(" ");
       console.error("[verity/live] Token request failed:", msg);
       throw new Error(msg);
     }
@@ -174,6 +176,7 @@ export function createLiveSessionManager(options: ManagerOptions): LiveSessionMa
         model: GEMINI_LIVE_MODEL,
         config: {
           responseModalities: [Modality.AUDIO],
+          tools: [{ googleSearch: {} }],
           systemInstruction: {
             parts: [{ text: buildLiveSystemInstruction(page) }],
           },

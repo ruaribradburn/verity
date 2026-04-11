@@ -62,6 +62,7 @@ export type LiveConfigSummary = {
   responseModality: "AUDIO";
   runtimeInputMethod: "sendRealtimeInput";
   historyInputMethod: "sendClientContent";
+  googleSearchGrounding: true;
   browserAuth: "ephemeral-token";
   serverKeyEnvVar: "GEMINI_API_KEY";
   thinkingLevel: "minimal";
@@ -252,6 +253,7 @@ export function createLiveConfigSummary(): LiveConfigSummary {
     responseModality: "AUDIO",
     runtimeInputMethod: "sendRealtimeInput",
     historyInputMethod: "sendClientContent",
+    googleSearchGrounding: true,
     browserAuth: "ephemeral-token",
     serverKeyEnvVar: "GEMINI_API_KEY",
     thinkingLevel: "minimal",
@@ -346,7 +348,8 @@ export function buildLivePageSeed(page: PageContext) {
 }
 
 export function resolveGeminiApiKey(env: Record<string, string | undefined>) {
-  return env.GEMINI_API_KEY || null;
+  const normalized = env.GEMINI_API_KEY?.trim();
+  return normalized ? normalized : null;
 }
 
 export function accumulateTranscript(previous: string, incoming: string) {

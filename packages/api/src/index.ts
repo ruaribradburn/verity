@@ -48,6 +48,35 @@ type TrafilaturaResult =
       error: string;
     };
 
+function formatGeminiCredentialError(error: unknown) {
+  const fallback = error instanceof Error ? error.message : "Failed to create ephemeral token.";
+  const normalized = fallback.toLowerCase();
+
+  if (
+    normalized.includes("api_key_invalid") ||
+    normalized.includes("api key not valid") ||
+    normalized.includes("invalid api key")
+  ) {
+    return (
+      "Configured GEMINI_API_KEY is invalid. Set a valid Google AI Studio Gemini API key in .env " +
+      "and restart the API server."
+    );
+  }
+
+  if (
+    normalized.includes("permission denied") ||
+    normalized.includes("permission_denied") ||
+    normalized.includes("forbidden")
+  ) {
+    return (
+      "Configured GEMINI_API_KEY does not have permission to create Gemini Live tokens. " +
+      "Use a Google AI Studio key with Gemini API access and restart the API server."
+    );
+  }
+
+  return fallback;
+}
+
 function parseCorsOrigins(raw: string | undefined): string[] {
   const origins = !raw?.trim()
     ? ["http://localhost:3000", "http://127.0.0.1:3000"]
@@ -304,8 +333,11 @@ app.post("/live/token", async (c) => {
     const body: LiveTokenHttpResponse = {
       ok: false,
       authMode: "unavailable",
-      error: error instanceof Error ? error.message : "Failed to create ephemeral token.",
-      warnings: ["The server-side Gemini credential is present, but token creation failed."],
+      error: formatGeminiCredentialError(error),
+      warnings: [
+        "The server-side Gemini credential is present, but token creation failed.",
+        "Check GEMINI_API_KEY in .env and restart the API server after updating it.",
+      ],
     };
     return c.json(body, 500);
   }
