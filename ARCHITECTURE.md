@@ -252,6 +252,161 @@ Durable rule: browser-facing contracts are typed in `src/core` and implemented i
 
 This is the main abstraction boundary between `src/app` and Gemini Live.
 
+### Tool Calling Framework
+
+Tool calling is not implemented in the current runtime, but the project needs one accepted contract before tools are introduced. The durable framework for this codebase is:
+
+1. YAML registry as the source of truth
+All model-exposed tool declarations should be defined in one versioned YAML registry, recommended at `config/tools.yaml`.
+
+2. Runtime registry in code
+Application code should load the YAML definitions, validate them, and bind each declared tool name to one executor implementation.
+
+3. Connect-time Gemini exposure
+Only the subset of enabled tools intended for the active session may be translated into Gemini `functionDeclarations`, because Gemini Live requires tools to be declared at `live.connect(...)` time.
+
+4. Strict split between live tools and orchestration tools
+Fast, synchronous tools may run directly in a live turn. Slow, parallel, or durable work must be exposed through orchestration tools such as `start_job` and `get_job_status`.
+
+5. Tool calls are data contracts, not prompt prose
+The model should only see tool metadata and JSON-schema-like parameter contracts derived from the YAML registry, never ad hoc executor details.
+
+6. Executor ownership follows trust boundaries
+Browser tools may only perform local UI or capture-safe actions. Server and orchestrator tools own credentials, network access, durable state, and side effects.
+
+#### Accepted Tool Architecture
+
+```mermaid
+flowchart LR
+  YAML["config/tools.yaml\nsource of truth"] --> Loader["tool loader + validator"]
+  Loader --> Registry["runtime ToolRegistry"]
+  Registry --> Decl["Gemini functionDeclarations"]
+  Registry --> Exec["executor bindings"]
+  Decl --> Live["Gemini Live session"]
+  Live --> Calls["toolCall.functionCalls"]
+  Calls --> Exec
+  Exec --> Resp["functionResponses"]
+  Resp --> Live
+```
+
+#### Registry Contract
+
+The accepted registry shape is:
+
+```yaml
+version: 1
+tools:
+  - name: get_current_page_context
+    description: Return the current normalized page context for the active session.
+    enabled: true
+    exposure: live
+    executor: browser
+    mode: sync
+    side_effects: read
+    timeout_ms: 1500
+    parameters:
+      type: object
+      properties: {}
+      required: []
+    returns:
+      type: object
+      properties:
+        page:
+          $ref: "#/schemas/PageContext"
+      required: [page]
+
+  - name: start_job
+    description: Start a long-running research or verification job.
+    enabled: true
+    exposure: live
+    executor: server
+    mode: async_job
+    side_effects: write
+    timeout_ms: 3000
+    parameters:
+      type: object
+      properties:
+        kind:
+          type: string
+        prompt:
+          type: string
+      required: [kind, prompt]
+    returns:
+      type: object
+      properties:
+        jobId:
+          type: string
+        status:
+          type: string
+      required: [jobId, status]
+```
+
+Each tool entry must define at least:
+
+- `name`: globally unique identifier used in Gemini and executor lookup
+- `description`: model-facing description
+- `enabled`: whether the tool may be exposed at runtime
+- `exposure`: `live` or `internal`
+- `executor`: `browser`, `server`, or `orchestrator`
+- `mode`: `sync` or `async_job`
+- `side_effects`: `read` or `write`
+- `timeout_ms`: max allowed runtime for one invocation
+- `parameters`: object schema for arguments
+- `returns`: object schema for success payloads
+
+Optional registry-level `schemas` may hold shared object definitions such as `PageContext`, `AnalysisRequest`, or `AnalysisResponse`.
+
+#### Runtime Rules
+
+- The YAML file is the only source of truth for model-visible tool declarations.
+- Code may enrich declarations with local metadata, but must not change argument or return shapes after load.
+- Every exposed tool name must have exactly one executor binding.
+- Unknown tool names, duplicate names, or invalid schemas are startup-time errors.
+- Only `enabled: true` tools may be exposed to Gemini.
+- Session-specific exposure is allowed, but it must be a filtered subset of the YAML registry.
+- Tool declarations sent to Gemini must be derived mechanically from the registry, not handwritten per session.
+- Tool results must be returned with `sendToolResponse(...)`, not `sendClientContent(...)`.
+
+#### Sync vs Async Contract
+
+Synchronous live tools:
+
+- are expected to complete within one live turn
+- should be read-mostly or tightly bounded mutations
+- should return structured data immediately
+
+Asynchronous orchestration tools:
+
+- are used for slow, parallel, or durable work
+- should return a job handle quickly
+- must be polled or resumed through a status tool such as `get_job_status`
+- must not block the live turn on heavy backend research
+
+Recommended baseline orchestration tools:
+
+- `start_job`
+- `get_job_status`
+- `cancel_job`
+
+#### Trust Boundary Rules
+
+- Browser executors must not own long-lived credentials.
+- Browser executors must not perform privileged network mutations directly.
+- Server executors may use secrets and protected connectors.
+- Orchestrator executors may coordinate fan-out, retries, durable job state, and synthesis work.
+- Any write-capable tool must be explicitly marked with `side_effects: write`.
+
+#### Relationship To Current Code
+
+This framework is intentionally compatible with the existing architecture:
+
+- `src/core` should own shared tool types and registry validation rules
+- `src/lib/live-session.ts` should translate enabled live tools into Gemini declarations at connect time
+- `src/server` should host privileged executors and orchestration endpoints
+- `src/app` should only participate in browser-scoped executor bindings when the tool is safe to run client-side
+
+This defines the accepted tool contract now without claiming the tool runtime already exists.
+
 ## Data Model
 
 ### Canonical Page Model

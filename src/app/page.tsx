@@ -59,6 +59,9 @@ export default function Home() {
   const [pageUrl, setPageUrl] = useState("");
   const [pageTitle, setPageTitle] = useState("");
   const [starting, setStarting] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [composeOpen, setComposeOpen] = useState(false);
+  const [setupOpen, setSetupOpen] = useState(true);
 
   useEffect(() => {
     void fetch(`${API_ORIGIN}/live/config`)
@@ -268,25 +271,27 @@ export default function Home() {
   }
 
   return (
-    <main className="min-h-screen bg-[#f4efe6] text-stone-900">
-      <div className="mx-auto flex min-h-screen max-w-5xl flex-col px-4 py-6 sm:px-6">
-        <header className="rounded-[2rem] border border-black/8 bg-white px-6 py-6 shadow-[0_18px_60px_rgba(0,0,0,0.06)]">
-          <div className="flex flex-col gap-5 md:flex-row md:items-end md:justify-between">
-            <div className="space-y-3">
-              <p className="text-xs uppercase tracking-[0.34em] text-amber-700">Verity live</p>
-              <h1 className="text-4xl font-semibold tracking-[-0.05em]">Talk to the page you are viewing</h1>
-              <p className="max-w-2xl text-sm leading-6 text-stone-600">
-                Start one live Gemini session, share your screen, and let Verity reason about what
-                it is seeing while you speak.
+    <main className="min-h-screen bg-[radial-gradient(circle_at_top,rgba(142,240,231,0.12),transparent_28%),linear-gradient(180deg,#0b3438_0%,#072528_100%)] text-white">
+      <div className="mx-auto flex min-h-screen max-w-6xl flex-col px-4 py-5 sm:px-6 lg:px-8">
+        <header className="rounded-[1px] border border-white/12 bg-white/5 px-5 py-5 shadow-[0_24px_70px_rgba(0,0,0,0.22)] backdrop-blur-sm">
+          <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+            <div className="space-y-2">
+              <p className="text-[11px] uppercase tracking-[0.3em] text-white/60">Verity live</p>
+              <h1 className="max-w-3xl text-3xl font-semibold tracking-[-0.04em] sm:text-4xl">
+                Live page analysis, without the clutter
+              </h1>
+              <p className="max-w-2xl text-sm leading-6 text-white/72">
+                Share a screen, speak normally, and keep the transcript central while secondary
+                controls stay tucked away until needed.
               </p>
             </div>
 
-            <div className="flex flex-col gap-3 sm:flex-row">
+            <div className="flex flex-col gap-2 sm:flex-row">
               <button
                 type="button"
                 onClick={startSession}
                 disabled={starting || snapshot.isConnected}
-                className="rounded-full bg-stone-950 px-5 py-3 text-sm font-medium text-stone-50 transition hover:bg-amber-700 disabled:cursor-wait disabled:opacity-70"
+                className="rounded-[1px] border border-white bg-white px-4 py-3 text-sm font-medium text-[#082c2f] transition hover:bg-[#dffefe] disabled:cursor-wait disabled:opacity-60"
               >
                 {starting
                   ? "Starting session..."
@@ -298,27 +303,33 @@ export default function Home() {
                 type="button"
                 onClick={stopSession}
                 disabled={!snapshot.isConnected}
-                className="rounded-full border border-stone-300 bg-white px-5 py-3 text-sm font-medium text-stone-700 transition hover:border-stone-900 hover:text-stone-900 disabled:opacity-40"
+                className="rounded-[1px] border border-white/18 bg-white/6 px-4 py-3 text-sm font-medium text-white transition hover:border-white/32 hover:bg-white/10 disabled:opacity-35"
               >
                 Stop session
               </button>
             </div>
           </div>
 
-          <div className="mt-5 flex flex-wrap gap-2 text-xs text-stone-600">
+          <div className="mt-5 flex flex-wrap gap-2">
             <Pill label={`state: ${snapshot.state}`} />
             <Pill label={liveConfig?.hasServerKey ? "ephemeral token ready" : "missing Gemini server key"} />
             <Pill label={snapshot.resumeHandle ? "session resumable" : "no resume handle yet"} />
           </div>
         </header>
 
-        <section className="mt-4 grid flex-1 gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
-          <div className="flex min-h-[70vh] flex-col rounded-[2rem] border border-black/8 bg-white shadow-[0_18px_60px_rgba(0,0,0,0.06)]">
-            <div className="border-b border-stone-200 px-5 py-4">
-              <p className="text-xs uppercase tracking-[0.28em] text-amber-700">Transcript</p>
+        <section className="mt-4 grid flex-1 gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
+          <div className="flex min-h-[72vh] flex-col rounded-[1px] border border-white/12 bg-white/6 shadow-[0_24px_70px_rgba(0,0,0,0.18)] backdrop-blur-sm">
+            <div className="flex items-center justify-between border-b border-white/10 px-4 py-4 sm:px-5">
+              <div>
+                <p className="text-[11px] uppercase tracking-[0.28em] text-white/55">Transcript</p>
+                <p className="mt-1 text-sm text-white/72">Live turns stay visible. Controls collapse below.</p>
+              </div>
+              <div className="font-mono text-[11px] text-white/55">
+                {transcript.length + Number(Boolean(snapshot.partialAssistantTranscript || snapshot.partialUserTranscript))} entries
+              </div>
             </div>
 
-            <div className="flex-1 space-y-4 overflow-y-auto px-4 py-5 sm:px-5">
+            <div className="flex-1 space-y-3 overflow-y-auto px-4 py-4 sm:px-5">
               {transcript.map((entry) => (
                 <TranscriptEntryView key={entry.id} entry={entry} />
               ))}
@@ -346,69 +357,99 @@ export default function Home() {
               ) : null}
             </div>
 
-            <div className="border-t border-stone-200 px-4 py-4 sm:px-5">
-              <div className="rounded-[1.5rem] border border-stone-200 bg-[#fbf9f4] p-3">
+            <details
+              className="border-t border-white/10 px-4 py-3 sm:px-5"
+              open={composeOpen}
+              onToggle={(event) => setComposeOpen(event.currentTarget.open)}
+            >
+              <summary className="flex cursor-pointer items-center justify-between gap-3 text-sm text-white/78">
+                <span>Typed message</span>
+                <DisclosureIcon open={composeOpen} />
+              </summary>
+              <div className="mt-3 rounded-[1px] border border-white/10 bg-[#0a2f33] p-3">
                 <textarea
                   value={typedInput}
                   onChange={(event) => setTypedInput(event.target.value)}
                   placeholder="Optional typed message while the voice session is live"
-                  className="min-h-24 w-full resize-none border-0 bg-transparent text-sm leading-6 text-stone-900 outline-none placeholder:text-stone-400"
+                  className="min-h-24 w-full resize-none border-0 bg-transparent text-sm leading-6 text-white outline-none placeholder:text-white/35"
                 />
-                <div className="mt-3 flex items-center justify-between gap-3 border-t border-stone-200 pt-3">
-                  <span className="text-xs text-stone-500">
-                    Screen share is the primary context channel. Typed input is optional.
-                  </span>
+                <div className="mt-3 flex items-center justify-between gap-3 border-t border-white/10 pt-3">
+                  <span className="text-xs text-white/50">Use only when voice is not enough.</span>
                   <button
                     type="button"
                     onClick={sendTypedMessage}
                     disabled={!snapshot.isConnected || !typedInput.trim()}
-                    className="rounded-full bg-stone-950 px-4 py-2 text-sm font-medium text-stone-50 transition hover:bg-amber-700 disabled:opacity-40"
+                    className="rounded-[1px] border border-white bg-white px-3 py-2 text-sm font-medium text-[#082c2f] transition hover:bg-[#dffefe] disabled:opacity-35"
                   >
                     Send
                   </button>
                 </div>
               </div>
-              {snapshot.lastError ? <p className="mt-3 text-sm text-red-700">{snapshot.lastError}</p> : null}
-            </div>
+              {snapshot.lastError ? <p className="mt-3 text-sm text-red-200">{snapshot.lastError}</p> : null}
+            </details>
           </div>
 
-          <aside className="flex flex-col gap-4 rounded-[2rem] border border-black/8 bg-white p-4 shadow-[0_18px_60px_rgba(0,0,0,0.06)]">
-            <section className="space-y-3">
-              <p className="text-xs uppercase tracking-[0.28em] text-amber-700">Page hint</p>
-              <input
-                value={pageTitle}
-                onChange={(event) => setPageTitle(event.target.value)}
-                placeholder="Optional page title"
-                className={inputClassName}
-              />
-              <input
-                value={pageUrl}
-                onChange={(event) => setPageUrl(event.target.value)}
-                placeholder="Optional page URL"
-                className={inputClassName}
-              />
-              <p className="text-xs leading-5 text-stone-500">
-                These fields are optional hints. The real grounding path should come from the shared
-                screen and voice stream.
-              </p>
-            </section>
+          <aside className="flex flex-col gap-3">
+            <details
+              className="rounded-[1px] border border-white/12 bg-white/6 px-4 py-3 shadow-[0_20px_60px_rgba(0,0,0,0.16)] backdrop-blur-sm"
+              open={setupOpen}
+              onToggle={(event) => setSetupOpen(event.currentTarget.open)}
+            >
+              <summary className="flex cursor-pointer items-center justify-between gap-3">
+                <div>
+                  <p className="text-[11px] uppercase tracking-[0.28em] text-white/55">Session setup</p>
+                  <p className="mt-1 text-sm text-white/72">Optional page hints and startup steps.</p>
+                </div>
+                <DisclosureIcon open={setupOpen} />
+              </summary>
 
-            <section className="space-y-3 rounded-[1.5rem] bg-[#f7f1e6] p-4">
-              <p className="text-xs uppercase tracking-[0.28em] text-amber-700">What happens</p>
-              <ol className="space-y-2 text-sm leading-6 text-stone-700">
-                <li>1. Click the primary button.</li>
-                <li>2. Choose the browser tab or screen to share.</li>
-                <li>3. Allow microphone access.</li>
-                <li>4. Speak naturally while Verity watches the page.</li>
-              </ol>
-            </section>
+              <div className="mt-4 space-y-4">
+                <div className="space-y-3">
+                  <input
+                    value={pageTitle}
+                    onChange={(event) => setPageTitle(event.target.value)}
+                    placeholder="Optional page title"
+                    className={inputClassName}
+                  />
+                  <input
+                    value={pageUrl}
+                    onChange={(event) => setPageUrl(event.target.value)}
+                    placeholder="Optional page URL"
+                    className={inputClassName}
+                  />
+                </div>
 
-            <section className="space-y-2 text-xs text-stone-500">
-              <Pill label={liveConfig?.live.model ?? "live config unavailable"} />
-              <Pill label="audio modality" />
-              <Pill label="1 FPS screen frames" />
-              <Pill label="sendRealtimeInput" />
-            </section>
+                <div className="rounded-[1px] border border-white/8 bg-[#0a2f33] p-3">
+                  <ol className="space-y-2 text-sm leading-6 text-white/72">
+                    <li>1. Start the live session.</li>
+                    <li>2. Pick a tab or screen.</li>
+                    <li>3. Allow microphone access.</li>
+                    <li>4. Speak while Verity watches the page.</li>
+                  </ol>
+                </div>
+              </div>
+            </details>
+
+            <details
+              className="rounded-[1px] border border-white/12 bg-white/6 px-4 py-3 shadow-[0_20px_60px_rgba(0,0,0,0.16)] backdrop-blur-sm"
+              open={detailsOpen}
+              onToggle={(event) => setDetailsOpen(event.currentTarget.open)}
+            >
+              <summary className="flex cursor-pointer items-center justify-between gap-3">
+                <div>
+                  <p className="text-[11px] uppercase tracking-[0.28em] text-white/55">Runtime details</p>
+                  <p className="mt-1 text-sm text-white/72">Model, transport, and stream state.</p>
+                </div>
+                <DisclosureIcon open={detailsOpen} />
+              </summary>
+
+              <div className="mt-4 flex flex-wrap gap-2">
+                <Pill label={liveConfig?.live.model ?? "live config unavailable"} />
+                <Pill label="audio modality" />
+                <Pill label="1 FPS screen frames" />
+                <Pill label="sendRealtimeInput" />
+              </div>
+            </details>
           </aside>
         </section>
       </div>
@@ -419,22 +460,22 @@ export default function Home() {
 function TranscriptEntryView({ entry }: { entry: TranscriptEntry }) {
   const tone =
     entry.role === "user"
-      ? "ml-auto bg-stone-950 text-stone-50"
+      ? "ml-auto border-white/16 bg-white text-[#082c2f]"
       : entry.role === "assistant"
-        ? "mr-auto bg-[#20160f] text-stone-100"
-        : "mx-auto bg-stone-200 text-stone-700";
+        ? "mr-auto border-[#8ef0e7]/20 bg-[#0b3135] text-white"
+        : "mx-auto border-white/10 bg-white/8 text-white/72";
 
   const width = entry.role === "system" ? "max-w-xl" : "max-w-3xl";
 
   return (
-    <article className={`${width} rounded-[1.6rem] px-4 py-3 shadow-[0_8px_24px_rgba(0,0,0,0.05)] ${tone}`}>
+    <article className={`${width} rounded-[1px] border px-4 py-3 shadow-[0_12px_30px_rgba(0,0,0,0.12)] ${tone}`}>
       <div className="flex items-center justify-between gap-3">
         <span className="text-[11px] font-semibold uppercase tracking-[0.24em] opacity-75">
           {entry.role}
         </span>
-        {entry.meta ? <span className="text-[11px] opacity-70">{entry.meta}</span> : null}
+        {entry.meta ? <span className="font-mono text-[11px] opacity-70">{entry.meta}</span> : null}
       </div>
-      <p className="mt-2 whitespace-pre-wrap text-sm leading-7">{entry.text}</p>
+      <p className="mt-2 whitespace-pre-wrap text-sm leading-6">{entry.text}</p>
     </article>
   );
 }
@@ -517,11 +558,19 @@ function tryGetHostname(url: string) {
 
 function Pill({ label }: { label: string }) {
   return (
-    <span className="rounded-full border border-stone-200 bg-stone-50 px-3 py-1.5 text-xs text-stone-600">
+    <span className="rounded-[1px] border border-white/12 bg-white/8 px-2.5 py-1.5 font-mono text-[11px] text-white/70">
       {label}
     </span>
   );
 }
 
 const inputClassName =
-  "w-full rounded-[1.1rem] border border-stone-300 bg-white px-4 py-3 text-sm text-stone-900 outline-none transition placeholder:text-stone-400 focus:border-amber-600 focus:ring-4 focus:ring-amber-200/60";
+  "w-full rounded-[1px] border border-white/12 bg-[#0a2f33] px-3 py-3 text-sm text-white outline-none transition placeholder:text-white/32 focus:border-white/28 focus:bg-[#0c3438]";
+
+function DisclosureIcon({ open }: { open: boolean }) {
+  return (
+    <span className="font-mono text-xs text-white/55" aria-hidden="true">
+      {open ? "[-]" : "[+]"}
+    </span>
+  );
+}
