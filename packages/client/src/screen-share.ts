@@ -6,6 +6,10 @@ export type ScreenShareHandle = {
   stop(): void;
 };
 
+type ScreenShareOptions = {
+  stream?: MediaStream;
+};
+
 /** Wait until the captured display produces frames (avoids null first capture). */
 async function waitForVideoDimensions(video: HTMLVideoElement, timeoutMs = 8000) {
   const start = Date.now();
@@ -15,17 +19,42 @@ async function waitForVideoDimensions(video: HTMLVideoElement, timeoutMs = 8000)
   }
 }
 
-export async function createScreenShareHandle(): Promise<ScreenShareHandle> {
-  const stream = await navigator.mediaDevices.getDisplayMedia({
-    video: true,
-    audio: false,
+async function waitForVideoReady(video: HTMLVideoElement) {
+  if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+    return;
+  }
+
+  await new Promise<void>((resolve) => {
+    const onLoadedMetadata = () => {
+      video.removeEventListener("loadedmetadata", onLoadedMetadata);
+      video.removeEventListener("loadeddata", onLoadedMetadata);
+      resolve();
+    };
+    video.addEventListener("loadedmetadata", onLoadedMetadata, { once: true });
+    video.addEventListener("loadeddata", onLoadedMetadata, { once: true });
   });
+}
+
+export async function createScreenShareHandle(
+  options?: ScreenShareOptions,
+): Promise<ScreenShareHandle> {
+  if (!navigator.mediaDevices?.getDisplayMedia) {
+    throw new Error("Screen sharing is unavailable in this browser. Use a recent Chrome, Edge, or Safari build.");
+  }
+
+  const stream =
+    options?.stream ??
+    (await navigator.mediaDevices.getDisplayMedia({
+      video: true,
+      audio: false,
+    }));
 
   const video = document.createElement("video");
   video.srcObject = stream;
   video.muted = true;
   video.playsInline = true;
-  await video.play();
+  await waitForVideoReady(video);
+  await video.play().catch(() => undefined);
   await waitForVideoDimensions(video);
 
   const canvas = document.createElement("canvas");
@@ -53,6 +82,8 @@ export async function createScreenShareHandle(): Promise<ScreenShareHandle> {
       window.clearInterval(interval);
       interval = null;
     }
+    video.pause();
+    video.srcObject = null;
     stream.getTracks().forEach((track) => track.stop());
   };
 

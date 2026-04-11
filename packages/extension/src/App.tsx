@@ -1,4 +1,9 @@
-import { LiveVoiceSession, type LiveInlineCard, type LiveSessionManager } from "@packages/client";
+import {
+  LiveVoiceSession,
+  type LiveActivityNotice,
+  type LiveInlineCard,
+  type LiveSessionManager,
+} from "@packages/client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ensureLiveSessionMediaPolicy } from "./media-permissions";
 import type { ResearchEvent, ResearchComplete } from "./research/types";
@@ -33,11 +38,15 @@ export default function App() {
   const voiceResearchRef = useRef(voiceResearch);
   voiceResearchRef.current = voiceResearch;
   const autoTriggerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const proactivePageTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastProactivePageUrlRef = useRef<string | null>(null);
+  const pendingProactivePageRef = useRef<{ url: string; title: string } | null>(null);
 
   // Clean up auto-trigger timer on unmount
   useEffect(() => {
     return () => {
       if (autoTriggerTimerRef.current) clearTimeout(autoTriggerTimerRef.current);
+      if (proactivePageTimerRef.current) clearTimeout(proactivePageTimerRef.current);
     };
   }, []);
   /** Capture what Gemini said in its immediate (grounding-only) response for cross-referencing. */
@@ -46,14 +55,38 @@ export default function App() {
 
   useEffect(() => {
     if (typeof chrome === "undefined" || !chrome.tabs?.query) return;
-    chrome.tabs.query({ active: true, lastFocusedWindow: true }, (tabs) => {
-      const t = tabs[0];
-      const u = t?.url ?? "";
-      if (!/^https?:\/\//i.test(u) || u.startsWith("chrome://") || u.startsWith("chrome-extension://")) {
+
+    const refreshActiveTab = () => {
+      chrome.tabs.query({ active: true, lastFocusedWindow: true }, (tabs) => {
+        const t = tabs[0];
+        const u = t?.url ?? "";
+        if (!/^https?:\/\//i.test(u) || u.startsWith("chrome://") || u.startsWith("chrome-extension://")) {
+          setTabHint(null);
+          return;
+        }
+        setTabHint({ url: u, title: t?.title ?? "" });
+      });
+    };
+
+    refreshActiveTab();
+
+    const onActivated = () => refreshActiveTab();
+    const onUpdated = (tabId: number, info: chrome.tabs.TabChangeInfo, tab: chrome.tabs.Tab) => {
+      if (!tab.active || (!info.url && !info.title && info.status !== "complete")) {
         return;
       }
-      setTabHint({ url: u, title: t?.title ?? "" });
-    });
+      refreshActiveTab();
+    };
+
+    chrome.tabs.onActivated?.addListener(onActivated);
+    chrome.tabs.onUpdated?.addListener(onUpdated);
+    window.addEventListener("focus", refreshActiveTab);
+
+    return () => {
+      chrome.tabs.onActivated?.removeListener(onActivated);
+      chrome.tabs.onUpdated?.removeListener(onUpdated);
+      window.removeEventListener("focus", refreshActiveTab);
+    };
   }, []);
 
   // Listen for research events from the background worker and feed results into the live session.
@@ -105,6 +138,7 @@ export default function App() {
                 }
               : prev,
           );
+          flushPendingProactivePageResearch();
           break;
 
         case "research:error": {
@@ -122,6 +156,7 @@ export default function App() {
               ? { phase: "error", query: prev.query, error: message.error }
               : { phase: "error", query: "", error: message.error },
           );
+          flushPendingProactivePageResearch();
           break;
         }
       }
@@ -130,6 +165,40 @@ export default function App() {
     chrome.runtime.onMessage.addListener(handleResearchEvent);
     return () => chrome.runtime.onMessage.removeListener(handleResearchEvent);
   }, []);
+
+  useEffect(() => {
+    if (!tabHint) {
+      return;
+    }
+    if (!managerRef.current?.getSnapshot().isConnected) {
+      return;
+    }
+
+    const normalizedUrl = normalizeResearchUrl(tabHint.url);
+    if (!shouldAutoResearchPage(tabHint)) {
+      pendingProactivePageRef.current = null;
+      return;
+    }
+    if (lastProactivePageUrlRef.current === normalizedUrl) {
+      pendingProactivePageRef.current = null;
+      return;
+    }
+
+    pendingProactivePageRef.current = tabHint;
+
+    if (voiceResearchRef.current.phase === "researching") {
+      return;
+    }
+
+    if (proactivePageTimerRef.current) {
+      clearTimeout(proactivePageTimerRef.current);
+    }
+
+    proactivePageTimerRef.current = setTimeout(() => {
+      proactivePageTimerRef.current = null;
+      void flushPendingProactivePageResearch();
+    }, 1200);
+  }, [tabHint]);
 
   async function injectResearchResults(event: ResearchComplete) {
     const manager = managerRef.current;
@@ -191,7 +260,9 @@ export default function App() {
             `Cite specific sources. Do not repeat raw text.`,
         ].join("\n");
 
-        manager.sendContext(formatted);
+        manager.sendContext(formatted, {
+          triggerResponse: pendingToolCallRef.current == null,
+        });
 
         // Send tool response back to Gemini so it knows research is complete
         const pending = pendingToolCallRef.current;
@@ -225,6 +296,9 @@ export default function App() {
         `\n\nGive the user a clear, unbiased analytical opinion based on ALL sources above. ` +
         `State what the evidence supports, what it contradicts, and what remains uncertain. ` +
         `Be direct and honest. Cite sources by number. Do not repeat raw text.`,
+      {
+        triggerResponse: pendingToolCallRef.current == null,
+      },
     );
 
     const pending = pendingToolCallRef.current;
@@ -238,10 +312,57 @@ export default function App() {
     }
   }
 
+  async function flushPendingProactivePageResearch() {
+    const pendingPage = pendingProactivePageRef.current;
+    if (!pendingPage) {
+      return;
+    }
+    if (!managerRef.current?.getSnapshot().isConnected) {
+      return;
+    }
+    if (voiceResearchRef.current.phase === "researching") {
+      return;
+    }
+
+    const normalizedUrl = normalizeResearchUrl(pendingPage.url);
+    if (lastProactivePageUrlRef.current === normalizedUrl) {
+      pendingProactivePageRef.current = null;
+      return;
+    }
+
+    pendingProactivePageRef.current = null;
+    lastProactivePageUrlRef.current = normalizedUrl;
+
+    const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+    if (!tab?.id || !tab.url || normalizeResearchUrl(tab.url) !== normalizedUrl) {
+      return;
+    }
+
+    console.log("[verity/ext] Proactively researching active page:", tab.url);
+    setVoiceResearch({
+      phase: "researching",
+      query: pendingPage.title || pendingPage.url,
+      pagesRead: 0,
+      totalPages: 0,
+      status: "Proactively analyzing current page...",
+      recentSources: [],
+    });
+    chrome.runtime.sendMessage({
+      type: "research:start",
+      source: "page",
+      tabId: tab.id,
+    });
+  }
+
   const handleUserTurnComplete = useCallback((text: string) => {
     // Voice-cancel: if the user says "stop" while research is running, cancel it
     if (voiceResearchRef.current.phase === "researching" && isCancelIntent(text)) {
       console.log("[verity/ext] User cancelled research via voice");
+      pendingProactivePageRef.current = null;
+      if (proactivePageTimerRef.current) {
+        clearTimeout(proactivePageTimerRef.current);
+        proactivePageTimerRef.current = null;
+      }
       chrome.runtime.sendMessage({ type: "research:cancel" });
       const pending = pendingToolCallRef.current;
       if (pending && managerRef.current) {
@@ -299,6 +420,8 @@ export default function App() {
         // Research the active tab directly — don't search for the user's words
         const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
         if (tab?.id && tab.url && /^https?:\/\//i.test(tab.url)) {
+          lastProactivePageUrlRef.current = normalizeResearchUrl(tab.url);
+          pendingProactivePageRef.current = null;
           console.log("[verity/ext] Auto-triggering PAGE research for active tab:", tab.url);
           setVoiceResearch({
             phase: "researching",
@@ -363,6 +486,8 @@ export default function App() {
             void (async () => {
               const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
               if (tab?.id && tab.url && /^https?:\/\//i.test(tab.url)) {
+                lastProactivePageUrlRef.current = normalizeResearchUrl(tab.url);
+                pendingProactivePageRef.current = null;
                 setVoiceResearch({
                   phase: "researching",
                   query: tab.title ?? tab.url,
@@ -451,6 +576,7 @@ export default function App() {
   }, []);
 
   const researchInlineCard = buildResearchInlineCard(voiceResearch);
+  const researchActivityNotice = buildResearchActivityNotice(voiceResearch);
 
   return (
     <div className="flex flex-col p-3">
@@ -462,6 +588,7 @@ export default function App() {
         onUserTurnComplete={handleUserTurnComplete}
         onToolCall={handleToolCall}
         onManagerReady={handleManagerReady}
+        activityNotice={researchActivityNotice}
         inlineCard={researchInlineCard}
       />
     </div>
@@ -597,4 +724,74 @@ function extractUrls(text: string): string[] {
   const matches = text.match(urlRegex);
   if (!matches) return [];
   return [...new Set(matches.map(u => u.replace(/[.)]+$/, "")))];
+}
+
+function buildResearchActivityNotice(status: VoiceResearchStatus): LiveActivityNotice | null {
+  if (status.phase === "researching") {
+    return {
+      id: "autonomous-research-notice",
+      tone: "active",
+      text: status.query
+        ? `Research in progress. Verity is gathering sources for "${status.query}".`
+        : "Research in progress. Verity is gathering sources for the current page.",
+    };
+  }
+
+  if (status.phase === "error") {
+    return {
+      id: "autonomous-research-notice",
+      tone: "error",
+      text: `Research failed: ${status.error}`,
+    };
+  }
+
+  return null;
+}
+
+function normalizeResearchUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    parsed.hash = "";
+    return parsed.toString();
+  } catch {
+    return url;
+  }
+}
+
+function shouldAutoResearchPage(page: { url: string; title: string }): boolean {
+  try {
+    const parsed = new URL(page.url);
+    if (!/^https?:$/i.test(parsed.protocol)) {
+      return false;
+    }
+
+    const hostname = parsed.hostname.toLowerCase();
+    if (
+      hostname.includes("google.") ||
+      hostname.includes("bing.") ||
+      hostname.includes("duckduckgo.") ||
+      hostname.includes("youtube.com") ||
+      hostname.includes("x.com") ||
+      hostname.includes("twitter.com")
+    ) {
+      return false;
+    }
+
+    const path = parsed.pathname.toLowerCase();
+    const title = page.title.trim().toLowerCase();
+    const articleSignals = ["/article", "/news", "/story", "/stories", "/202", "/20", "/post", "/blog"];
+    const titleSignals = [" - ", " | ", ":"];
+
+    if (articleSignals.some((signal) => path.includes(signal))) {
+      return true;
+    }
+
+    if (titleSignals.some((signal) => title.includes(signal)) && title.split(" ").length >= 5) {
+      return true;
+    }
+
+    return path.split("/").filter(Boolean).length >= 2 && title.split(" ").length >= 6;
+  } catch {
+    return false;
+  }
 }

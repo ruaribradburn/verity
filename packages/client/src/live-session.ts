@@ -1,4 +1,4 @@
-import { GoogleGenAI, Modality, FunctionResponse, type LiveServerMessage } from "@google/genai";
+import { GoogleGenAI, MediaResolution, Modality, FunctionResponse, type LiveServerMessage } from "@google/genai";
 import {
   AsyncQueue,
   GEMINI_LIVE_API_VERSION,
@@ -26,7 +26,7 @@ export type LiveSessionManager = {
   connect(page: PageContext): Promise<void>;
   sendText(text: string): void;
   /** Injects background context (e.g. research results) without ending the user turn. */
-  sendContext(text: string): void;
+  sendContext(text: string, options?: { triggerResponse?: boolean }): void;
   /** Send a function response back to Gemini after handling a tool call. */
   sendToolResponse(id: string, name: string, response: Record<string, unknown>): void;
   sendAudioChunk(base64Pcm16: string): void;
@@ -68,6 +68,30 @@ type LiveSessionHandle = {
   ): void;
   sendToolResponse(params: { functionResponses: FunctionResponse[] | FunctionResponse }): void;
 };
+
+function safeStringifyForLog(value: unknown) {
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return "[unserializable]";
+  }
+}
+
+const ENABLE_LIVE_VIDEO = true;
+const ENABLE_PAGE_CONTEXT_INJECTION = false;
+const ENABLE_DEBUG_LOGS = false;
+
+let audioChunkLogCount = 0;
+let videoFrameLogCount = 0;
+
+function debugLog(message: string, payload?: unknown) {
+  if (!ENABLE_DEBUG_LOGS) return;
+  if (payload === undefined) {
+    console.log(message);
+    return;
+  }
+  console.log(message, payload);
+}
 
 export function createLiveSessionManager(options: ManagerOptions): LiveSessionManager {
   const queue = new AsyncQueue<LiveServerMessage>();
@@ -115,7 +139,7 @@ export function createLiveSessionManager(options: ManagerOptions): LiveSessionMa
   }
 
   async function fetchEphemeralToken() {
-    console.log("[verity/live] Fetching ephemeral token from:", `${options.apiOrigin}/live/token`);
+    debugLog("[verity/live] Fetching ephemeral token from:", `${options.apiOrigin}/live/token`);
     let res: Response;
     try {
       res = await fetch(`${options.apiOrigin}/live/token`, {
@@ -128,7 +152,7 @@ export function createLiveSessionManager(options: ManagerOptions): LiveSessionMa
           "If the error persists from the Chrome extension, confirm CORS allows chrome-extension origins (packages/api enables this by default).",
       );
     }
-    console.log("[verity/live] Token response status:", res.status);
+    debugLog("[verity/live] Token response status:", res.status);
     const body = (await res.json()) as LiveTokenHttpResponse;
     if (!res.ok || !body.ok) {
       const msg = body.ok
@@ -137,7 +161,7 @@ export function createLiveSessionManager(options: ManagerOptions): LiveSessionMa
       console.error("[verity/live] Token request failed:", msg);
       throw new Error(msg);
     }
-    console.log("[verity/live] Ephemeral token obtained successfully");
+    debugLog("[verity/live] Ephemeral token obtained successfully");
     return body;
   }
 
@@ -189,7 +213,7 @@ export function createLiveSessionManager(options: ManagerOptions): LiveSessionMa
       if (msg.toolCall?.functionCalls) {
         for (const fc of msg.toolCall.functionCalls) {
           if (fc.name && fc.id && options.onToolCall) {
-            console.log(`[verity/live] Gemini requested tool call: ${fc.name}`, fc.args);
+            debugLog(`[verity/live] Gemini requested tool call: ${fc.name}`, fc.args);
             options.onToolCall({
               id: fc.id,
               name: fc.name,
@@ -209,7 +233,7 @@ export function createLiveSessionManager(options: ManagerOptions): LiveSessionMa
 
   return {
     async connect(page) {
-      console.log("[verity/live] Connecting live session to:", options.apiOrigin);
+      debugLog("[verity/live] Connecting live session to:", options.apiOrigin);
       state = "connecting";
       partialUserTranscript = "";
       partialAssistantTranscript = "";
@@ -222,18 +246,36 @@ export function createLiveSessionManager(options: ManagerOptions): LiveSessionMa
         apiVersion: GEMINI_LIVE_API_VERSION,
       });
       const setupComplete = createDeferred<void>();
+      const systemInstruction = buildLiveSystemInstruction(page);
+      const toolDeclarations = createResearchToolDeclarations();
+
+      console.log("[verity/live] Connect config:", {
+        model: GEMINI_LIVE_MODEL,
+        voiceName: liveDefaults.voiceName,
+        languageCode: liveDefaults.speechLanguageCode,
+        temperature: liveDefaults.temperature,
+        mediaResolution: MediaResolution.MEDIA_RESOLUTION_MEDIUM,
+        responseModalities: [Modality.AUDIO],
+        googleSearchEnabled: true,
+        functionDeclarationCount: toolDeclarations.length,
+        systemInstructionLength: systemInstruction.length,
+        hasResumeHandle: Boolean(resumeHandle),
+        enableLiveVideo: ENABLE_LIVE_VIDEO,
+        enablePageContextInjection: ENABLE_PAGE_CONTEXT_INJECTION,
+      });
 
       session = await ai.live.connect({
         model: GEMINI_LIVE_MODEL,
         config: {
           responseModalities: [Modality.AUDIO],
+          mediaResolution: MediaResolution.MEDIA_RESOLUTION_MEDIUM,
           tools: [
             { googleSearch: {} },
             // @ts-expect-error LiveFunctionDeclaration uses plain string types; the SDK expects its own Type enum but accepts strings at runtime.
-            { functionDeclarations: createResearchToolDeclarations() },
+            { functionDeclarations: toolDeclarations },
           ],
           systemInstruction: {
-            parts: [{ text: buildLiveSystemInstruction(page) }],
+            parts: [{ text: systemInstruction }],
           },
           speechConfig: {
             languageCode: liveDefaults.speechLanguageCode,
@@ -257,24 +299,27 @@ export function createLiveSessionManager(options: ManagerOptions): LiveSessionMa
           },
           contextWindowCompression: {
             slidingWindow: {
-              // @ts-expect-error SDK types declare string but the Live API requires numeric values.
-              targetTokens: liveDefaults.contextWindowCompression.targetTokens,
+              targetTokens: String(liveDefaults.contextWindowCompression.targetTokens),
             },
-            // @ts-expect-error SDK types declare string but the Live API requires numeric values.
-            triggerTokens: liveDefaults.contextWindowCompression.triggerTokens,
+            triggerTokens: String(liveDefaults.contextWindowCompression.triggerTokens),
           },
           sessionResumption: resumeHandle ? { handle: resumeHandle } : undefined,
         },
         callbacks: {
           onopen: () => {
-            console.log("[verity/live] Gemini Live WebSocket connected");
+            debugLog("[verity/live] Gemini Live WebSocket connected");
             state = "connected";
             emitSnapshot();
           },
           onmessage: (message) => {
             if (message.setupComplete) {
-              console.log("[verity/live] Gemini Live setup complete");
+              debugLog("[verity/live] Gemini Live setup complete");
               setupComplete.resolve();
+            }
+            if (message.goAway) {
+              console.warn("[verity/live] Gemini Live goAway:", {
+                timeLeftMs: message.goAway.timeLeft,
+              });
             }
             queue.put(message);
           },
@@ -322,26 +367,53 @@ export function createLiveSessionManager(options: ManagerOptions): LiveSessionMa
       if (!session) {
         throw new Error("Live session is not connected.");
       }
+      debugLog("[verity/live] sendRealtimeInput:text", {
+        length: text.length,
+        preview: text.slice(0, 160),
+      });
       state = "processing";
       partialAssistantTranscript = "";
       session.sendRealtimeInput({ text });
       emitSnapshot();
     },
 
-    sendContext(text) {
+    sendContext(text, options) {
       if (!session) {
         throw new Error("Live session is not connected.");
       }
+      const isPageContextHint = text.startsWith("[Current page context]");
+      if (isPageContextHint && !ENABLE_PAGE_CONTEXT_INJECTION) {
+        debugLog("[verity/live] sendClientContent:context skipped", {
+          reason: "ENABLE_PAGE_CONTEXT_INJECTION=false",
+          length: text.length,
+          preview: text.slice(0, 160),
+        });
+        return;
+      }
+      debugLog("[verity/live] sendClientContent:context", {
+        length: text.length,
+        triggerResponse: Boolean(options?.triggerResponse),
+        preview: text.slice(0, 160),
+      });
       session.sendClientContent({
         turns: [{ role: "user", parts: [{ text }] }],
-        turnComplete: false,
+        turnComplete: options?.triggerResponse ?? false,
       });
+      if (options?.triggerResponse) {
+        state = "processing";
+        partialAssistantTranscript = "";
+      }
       emitSnapshot();
     },
 
     sendToolResponse(id, name, response) {
       if (!session) return;
-      console.log(`[verity/live] Sending tool response for: ${name}`);
+      debugLog(`[verity/live] Sending tool response for: ${name}`);
+      debugLog("[verity/live] sendToolResponse:payload", {
+        id,
+        name,
+        responsePreview: safeStringifyForLog(response).slice(0, 200),
+      });
       const fr = new FunctionResponse();
       fr.id = id;
       fr.name = name;
@@ -351,6 +423,13 @@ export function createLiveSessionManager(options: ManagerOptions): LiveSessionMa
 
     sendAudioChunk(base64Pcm16) {
       if (!session) return;
+      if (ENABLE_DEBUG_LOGS && audioChunkLogCount % 100 === 0) {
+        console.log("[verity/live] sendRealtimeInput:audio", {
+          bytesBase64: base64Pcm16.length,
+          chunkIndex: audioChunkLogCount,
+        });
+      }
+      audioChunkLogCount += 1;
       session.sendRealtimeInput({
         audio: {
           data: base64Pcm16,
@@ -361,11 +440,26 @@ export function createLiveSessionManager(options: ManagerOptions): LiveSessionMa
 
     sendAudioStreamEnd() {
       if (!session) return;
+      debugLog("[verity/live] sendRealtimeInput:audioStreamEnd");
       session.sendRealtimeInput({ audioStreamEnd: true });
     },
 
     sendVideoFrame(base64Jpeg) {
       if (!session) return;
+      if (!ENABLE_LIVE_VIDEO) {
+        debugLog("[verity/live] sendRealtimeInput:video skipped", {
+          reason: "ENABLE_LIVE_VIDEO=false",
+          bytesBase64: base64Jpeg.length,
+        });
+        return;
+      }
+      if (ENABLE_DEBUG_LOGS && videoFrameLogCount % 10 === 0) {
+        console.log("[verity/live] sendRealtimeInput:video", {
+          bytesBase64: base64Jpeg.length,
+          frameIndex: videoFrameLogCount,
+        });
+      }
+      videoFrameLogCount += 1;
       session.sendRealtimeInput({
         video: {
           data: base64Jpeg,

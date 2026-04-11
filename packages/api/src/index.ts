@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { serve } from "@hono/node-server";
-import { GoogleGenAI, Modality } from "@google/genai";
+import { GoogleGenAI } from "@google/genai";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import {
@@ -337,13 +337,6 @@ app.post("/live/token", async (c) => {
         uses: 1,
         expireTime: new Date(now + 30 * 60 * 1000).toISOString(),
         newSessionExpireTime: new Date(now + 60 * 1000).toISOString(),
-        liveConnectConstraints: {
-          model: GEMINI_LIVE_MODEL,
-          config: {
-            responseModalities: [Modality.AUDIO],
-            temperature: 0.7,
-          },
-        },
       },
     });
 

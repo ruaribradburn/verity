@@ -14,7 +14,7 @@
     "dev:ext": "bun scripts/run-workspace.ts ext dev",
     "start": "bun scripts/run-workspace.ts web start",
     "lint": "eslint .",
-    "check-types": "bun run --filter '*' check-types",
+    "check-types": "bun scripts/run-check-types.ts",
     "setup:trafilatura": "bun scripts/install-trafilatura.ts"
   },
   "devDependencies": {

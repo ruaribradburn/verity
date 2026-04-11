@@ -11,6 +11,7 @@ const MIC_QUERY: PermissionDescriptor = { name: "microphone" as PermissionName }
  */
 export async function ensureLiveSessionMediaPolicy(): Promise<void> {
   await ensureBrowserMicrophonePolicy();
+  await primeBrowserMicrophonePermission();
 }
 
 async function ensureBrowserMicrophonePolicy(): Promise<void> {
@@ -25,6 +26,26 @@ async function ensureBrowserMicrophonePolicy(): Promise<void> {
     }
   } catch (e) {
     if (e instanceof Error && e.message.startsWith("Microphone")) throw e;
+  }
+}
+
+async function primeBrowserMicrophonePermission(): Promise<void> {
+  if (!navigator.mediaDevices?.getUserMedia) {
+    throw new Error("Microphone capture is unavailable in this browser.");
+  }
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    stream.getTracks().forEach((track) => track.stop());
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "NotAllowedError") {
+      openVerityPermissionsTab();
+      throw new Error(
+        "Microphone access must be granted for the extension before a live session can start. A Verity permissions tab has been opened to help you enable it.",
+      );
+    }
+
+    throw error;
   }
 }
 

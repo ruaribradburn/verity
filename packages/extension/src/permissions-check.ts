@@ -17,6 +17,7 @@ export interface PermissionItem {
   label: string;
   description: string;
   granted: boolean;
+  state?: PermissionState | "unavailable";
   /**
    * True when the UI can try to recover in-app. False means the user must
    * change browser or extension settings manually.
@@ -55,13 +56,18 @@ export async function checkAllPermissions(): Promise<PermissionStatus> {
 
   const micState = await queryBrowserPermission("microphone" as PermissionName);
   const micBlocked = micState === "denied";
+  const micGranted = micState === "granted";
   items.push({
     id: "microphone",
     label: "Microphone (browser)",
-    description: micBlocked
-      ? "Microphone is blocked. Open chrome://settings/content/microphone and allow Verity."
-      : "Microphone access will be requested when you start a live session.",
-    granted: !micBlocked,
+    description:
+      micState === "granted"
+        ? "Microphone access is ready."
+        : micBlocked
+          ? "Microphone is blocked. Open chrome://settings/content/microphone and allow Verity."
+          : "Microphone access still needs to be granted in the browser prompt.",
+    granted: micGranted,
+    state: micState,
     grantable: !micBlocked,
   });
 

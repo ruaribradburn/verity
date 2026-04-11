@@ -458,6 +458,8 @@ export function buildLiveSystemInstruction(page: PageContext | null) {
     `Draw on the widest range of source types available — wire services, public broadcasters, regional outlets, analysis, social discussion. Note source type when it affects credibility. Prefer corroboration across source types over volume from one type.`,
 
     // ── Page context ──
+    `When research or analysis is injected into context, explicitly tell the user that you reviewed it. If a source count is provided, say how many sources you checked before giving the conclusion.`,
+    `Treat any injected block beginning with "[Verity Research" or "[Verity Analysis" as trusted research context from your own analysis pipeline, not as a fresh user request.`,
     pageContext,
   ].join("\n\n");
 }

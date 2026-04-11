@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   attachMicrophoneToLiveSession,
   createLiveSessionManager,
-  createScreenShareHandle,
+  requestLiveCaptureResources,
   type LiveSessionManager,
   type LiveSessionSnapshot,
 } from "@packages/client";
@@ -33,6 +33,11 @@ const INITIAL_PAGE: PageContext = {
   contentText:
     "Screen sharing is active. Verity should reason about the user's current browsing context from live frames and voice interaction.",
 };
+
+type BrowserWindow = Window &
+  typeof globalThis & {
+    webkitAudioContext?: typeof AudioContext;
+  };
 
 export default function Home() {
   const managerRef = useRef<LiveSessionManager | null>(null);
@@ -115,7 +120,6 @@ export default function Home() {
     if (starting || snapshot.isConnected) return;
 
     setStarting(true);
-    let microphoneStream: MediaStream | null = null;
     try {
       const manager = createLiveSessionManager({
         apiOrigin: API_ORIGIN,
@@ -127,7 +131,7 @@ export default function Home() {
       });
       managerRef.current = manager;
 
-      const screenShare = await createScreenShareHandle();
+      const { screenShare, microphoneStream } = await requestLiveCaptureResources();
       screenCleanupRef.current = () => screenShare.stop();
 
       const hydrated = await hydratePageContext({
@@ -138,15 +142,7 @@ export default function Home() {
 
       await manager.connect(hydrated.page);
       screenShare.startStreaming(manager);
-      microphoneStream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        },
-      });
       await startMicrophone(manager, microphoneStream);
-      microphoneStream = null;
 
       if (hydrated.page.url !== INITIAL_PAGE.url) {
         setPageUrl(hydrated.page.url);
@@ -180,7 +176,6 @@ export default function Home() {
           meta: "error",
         },
       ]);
-      microphoneStream?.getTracks().forEach((track) => track.stop());
       stopSession();
     } finally {
       setStarting(false);
@@ -221,12 +216,11 @@ export default function Home() {
   }
 
   function enqueueAssistantAudio(bytes: Uint8Array) {
-    const audioContext =
-      playbackAudioContextRef.current ??
-      new AudioContext({
-        sampleRate: 24000,
-      });
+    const audioContext = playbackAudioContextRef.current ?? createPlaybackAudioContext();
     playbackAudioContextRef.current = audioContext;
+    if (audioContext.state === "suspended") {
+      void audioContext.resume().catch(() => undefined);
+    }
 
     const samples = pcm16ToFloat32(bytes);
     const buffer = audioContext.createBuffer(1, samples.length, 24000);
@@ -351,6 +345,14 @@ export default function Home() {
   );
 }
 
+function createPlaybackAudioContext() {
+  const ctor = window.AudioContext ?? (window as BrowserWindow).webkitAudioContext;
+  if (!ctor) {
+    throw new Error("Web Audio playback is unavailable in this browser.");
+  }
+  return new ctor({ sampleRate: 24000 });
+}
+
 function formatStartSessionError(error: unknown) {
   if (error instanceof DOMException) {
     if (error.name === "NotAllowedError") {
@@ -359,6 +361,14 @@ function formatStartSessionError(error: unknown) {
 
     if (error.name === "NotFoundError") {
       return "No usable screen or microphone source was found for the live session.";
+    }
+
+    if (error.name === "NotReadableError") {
+      return "Screen share or microphone capture could not start. Close any app already using those devices and check OS privacy settings.";
+    }
+
+    if (error.name === "SecurityError") {
+      return "Live capture requires a secure context. Open Verity from localhost or HTTPS and try again.";
     }
 
     return error.message || "Failed to start the live session.";

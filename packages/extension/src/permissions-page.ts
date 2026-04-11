@@ -22,12 +22,21 @@ async function render() {
     listEl.appendChild(li);
   }
 
-  if (status.allGranted) {
+  const microphone = status.items.find((item) => item.id === "microphone");
+  const allReady = status.items.every((item) => item.granted);
+
+  if (allReady || microphone?.state === "granted") {
     statusEl.textContent = "All permissions granted. You can close this tab.";
     statusEl.className = "status success";
     grantBtn.disabled = true;
     chrome.runtime.sendMessage({ type: "verity:mic-granted" }).catch(() => {});
     setTimeout(() => window.close(), 1500);
+    return;
+  }
+
+  if (microphone?.state === "prompt") {
+    statusEl.textContent = "Click Grant access to open the browser microphone prompt.";
+    statusEl.className = "status";
   }
 }
 

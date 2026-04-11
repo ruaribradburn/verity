@@ -15,8 +15,13 @@ import {
   type LiveSessionManager,
   type LiveSessionSnapshot,
 } from "./live-session";
+import { requestLiveCaptureResources } from "./live-media";
 import { attachMicrophoneToLiveSession } from "./microphone-stream";
-import { createScreenShareHandle } from "./screen-share";
+
+type BrowserWindow = Window &
+  typeof globalThis & {
+    webkitAudioContext?: typeof AudioContext;
+  };
 
 export type LiveVoiceSessionProps = {
   /** Base URL of `packages/api` (no trailing slash), e.g. http://127.0.0.1:3001 */
@@ -37,6 +42,8 @@ export type LiveVoiceSessionProps = {
   onManagerReady?: (manager: LiveSessionManager) => void;
   /** Optional inline agent-style card rendered directly inside the transcript flow. */
   inlineCard?: LiveInlineCard | null;
+  /** Optional user-facing activity notice rendered in the transcript flow. */
+  activityNotice?: LiveActivityNotice | null;
 };
 
 type TranscriptEntry = {
@@ -59,6 +66,12 @@ export type LiveInlineCard = {
   items?: string[];
 };
 
+export type LiveActivityNotice = {
+  id: string;
+  text: string;
+  tone?: "active" | "success" | "error";
+};
+
 const INITIAL_PAGE: PageContext = {
   url: "Screen share session",
   title: "Live screen share",
@@ -78,6 +91,7 @@ export function LiveVoiceSession({
   onToolCall,
   onManagerReady,
   inlineCard,
+  activityNotice,
 }: LiveVoiceSessionProps) {
   const base = apiOrigin.replace(/\/$/, "");
 
@@ -88,6 +102,8 @@ export function LiveVoiceSession({
   const playbackCursorRef = useRef(0);
   const lastTurnCountRef = useRef(0);
   const prevUserTranscriptRef = useRef("");
+  const hasInjectedPageContextForCurrentTurnRef = useRef(false);
+  const lastInjectedPageContextRef = useRef("");
   const snapshotRef = useRef<LiveSessionSnapshot>({
     state: "disconnected",
     partialUserTranscript: "",
@@ -115,18 +131,27 @@ export function LiveVoiceSession({
 
   useEffect(() => {
     setPageUrl((prev) => {
-      if (!initialPageUrl?.trim()) return prev;
-      if (prev === "") return initialPageUrl.trim();
-      return prev;
+      const next = initialPageUrl?.trim();
+      if (!next) return prev;
+      return prev === next ? prev : next;
     });
     setPageTitle((prev) => {
-      if (!initialPageTitle?.trim()) return prev;
-      if (prev === "") return initialPageTitle.trim();
-      return prev;
+      const next = initialPageTitle?.trim();
+      if (!next) return prev;
+      return prev === next ? prev : next;
     });
   }, [initialPageUrl, initialPageTitle]);
   const [starting, setStarting] = useState(false);
   const [composeOpen, setComposeOpen] = useState(false);
+
+  function getResolvedPageHint() {
+    const resolvedUrl = initialPageUrl?.trim() || pageUrl.trim();
+    const resolvedTitle = initialPageTitle?.trim() || pageTitle.trim();
+    return {
+      url: resolvedUrl,
+      title: resolvedTitle,
+    };
+  }
 
   useEffect(() => {
     void fetch(`${base}/live/config`)
@@ -140,10 +165,49 @@ export function LiveVoiceSession({
   }, [snapshot]);
 
   useEffect(() => {
+    const partialUserTranscript = snapshot.partialUserTranscript.trim();
+    if (!partialUserTranscript) {
+      hasInjectedPageContextForCurrentTurnRef.current = false;
+      return;
+    }
+
+    if (hasInjectedPageContextForCurrentTurnRef.current) {
+      return;
+    }
+
+    const manager = managerRef.current;
+    const injectedContext = buildPageContextInjection(pageUrl, pageTitle);
+    if (!manager || !injectedContext) {
+      return;
+    }
+
+    hasInjectedPageContextForCurrentTurnRef.current = true;
+    if (lastInjectedPageContextRef.current !== injectedContext) {
+      lastInjectedPageContextRef.current = injectedContext;
+    }
+    manager.sendContext(injectedContext);
+  }, [pageTitle, pageUrl, snapshot.partialUserTranscript]);
+
+  useEffect(() => {
+    const manager = managerRef.current;
+    const injectedContext = buildPageContextInjection(pageUrl, pageTitle);
+    if (!snapshot.isConnected || !manager || !injectedContext) {
+      return;
+    }
+    if (lastInjectedPageContextRef.current === injectedContext) {
+      return;
+    }
+
+    lastInjectedPageContextRef.current = injectedContext;
+    manager.sendContext(injectedContext);
+  }, [pageTitle, pageUrl, snapshot.isConnected]);
+
+  useEffect(() => {
     if (snapshot.turnCompleteCount === 0 || snapshot.turnCompleteCount === lastTurnCountRef.current) {
       return;
     }
 
+    hasInjectedPageContextForCurrentTurnRef.current = false;
     lastTurnCountRef.current = snapshot.turnCompleteCount;
     const fullUserTranscript = snapshot.partialUserTranscript.trim();
     const prev = prevUserTranscriptRef.current;
@@ -187,7 +251,6 @@ export function LiveVoiceSession({
     if (starting || snapshot.isConnected) return;
 
     setStarting(true);
-    let microphoneStream: MediaStream | null = null;
     try {
       await prepareLiveMediaCapture?.();
 
@@ -206,32 +269,36 @@ export function LiveVoiceSession({
       });
       managerRef.current = manager;
 
-      const screenShare = await createScreenShareHandle();
+      const { screenShare, microphoneStream } = await requestLiveCaptureResources();
       screenCleanupRef.current = () => screenShare.stop();
 
+      const resolvedHint = getResolvedPageHint();
       const hydrated = await hydratePageContext({
         apiOrigin: base,
-        fallbackPage: buildPageContext(pageUrl, pageTitle),
+        fallbackPage: buildPageContext(resolvedHint.url, resolvedHint.title),
         screenshotBase64: screenShare.captureFrame(),
       });
 
       await manager.connect(hydrated.page);
       screenShare.startStreaming(manager);
-      microphoneStream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        },
-      });
       await startMicrophone(manager, microphoneStream);
-      microphoneStream = null;
 
       if (hydrated.page.url !== INITIAL_PAGE.url) {
         setPageUrl(hydrated.page.url);
       }
       if (hydrated.page.title) {
         setPageTitle(hydrated.page.title);
+      }
+
+      const initialContextInjection = buildPageContextInjection(
+        hydrated.page.url !== INITIAL_PAGE.url ? hydrated.page.url : resolvedHint.url,
+        hydrated.page.title && hydrated.page.title !== INITIAL_PAGE.title
+          ? hydrated.page.title
+          : resolvedHint.title,
+      );
+      if (initialContextInjection) {
+        lastInjectedPageContextRef.current = initialContextInjection;
+        manager.sendContext(initialContextInjection);
       }
       onManagerReady?.(manager);
 
@@ -260,7 +327,6 @@ export function LiveVoiceSession({
           meta: "error",
         },
       ]);
-      microphoneStream?.getTracks().forEach((track) => track.stop());
       stopSession();
     } finally {
       setStarting(false);
@@ -281,6 +347,11 @@ export function LiveVoiceSession({
 
   function sendTypedMessage() {
     if (!typedInput.trim() || !managerRef.current) return;
+    const injectedContext = buildPageContextInjection(pageUrl, pageTitle);
+    if (injectedContext && lastInjectedPageContextRef.current !== injectedContext) {
+      lastInjectedPageContextRef.current = injectedContext;
+      managerRef.current.sendContext(injectedContext);
+    }
     managerRef.current.sendText(typedInput.trim());
     setTranscript((current) => [
       ...current,
@@ -301,12 +372,11 @@ export function LiveVoiceSession({
   }
 
   function enqueueAssistantAudio(bytes: Uint8Array) {
-    const audioContext =
-      playbackAudioContextRef.current ??
-      new AudioContext({
-        sampleRate: 24000,
-      });
+    const audioContext = playbackAudioContextRef.current ?? createPlaybackAudioContext();
     playbackAudioContextRef.current = audioContext;
+    if (audioContext.state === "suspended") {
+      void audioContext.resume().catch(() => undefined);
+    }
 
     const samples = pcm16ToFloat32(bytes);
     const buffer = audioContext.createBuffer(1, samples.length, 24000);
@@ -413,6 +483,8 @@ export function LiveVoiceSession({
               <TranscriptEntryView key={entry.id} entry={entry} />
             ))}
 
+            {activityNotice ? <ActivityNoticeView key={activityNotice.id} notice={activityNotice} /> : null}
+
             {inlineCard ? <InlineTranscriptCard key={inlineCard.id} card={inlineCard} /> : null}
 
             {snapshot.partialUserTranscript.trim() ? (
@@ -488,6 +560,14 @@ export function LiveVoiceSession({
   );
 }
 
+function createPlaybackAudioContext() {
+  const ctor = window.AudioContext ?? (window as BrowserWindow).webkitAudioContext;
+  if (!ctor) {
+    throw new Error("Web Audio playback is unavailable in this browser.");
+  }
+  return new ctor({ sampleRate: 24000 });
+}
+
 function formatStartSessionError(error: unknown) {
   if (error instanceof DOMException) {
     if (error.name === "NotAllowedError") {
@@ -496,6 +576,14 @@ function formatStartSessionError(error: unknown) {
 
     if (error.name === "NotFoundError") {
       return "No usable screen or microphone source was found for the live session.";
+    }
+
+    if (error.name === "NotReadableError") {
+      return "Screen share or microphone capture could not start. Close any app already using those devices and check OS privacy settings.";
+    }
+
+    if (error.name === "SecurityError") {
+      return "Live capture requires a secure context. Open Verity from localhost or HTTPS and try again.";
     }
 
     return error.message || "Failed to start the live session.";
@@ -604,6 +692,22 @@ function InlineTranscriptCard({ card }: { card: LiveInlineCard }) {
   );
 }
 
+function ActivityNoticeView({ notice }: { notice: LiveActivityNotice }) {
+  const toneClass =
+    notice.tone === "success"
+      ? "border-[var(--success)] bg-[var(--success-muted)] text-[var(--success)]"
+      : notice.tone === "error"
+        ? "border-[var(--error)] bg-[var(--error-muted)] text-[var(--error)]"
+        : "border-[var(--accent)] bg-[var(--accent-muted)] text-[var(--accent-text)]";
+
+  return (
+    <article className={`mr-auto max-w-[88%] rounded-2xl border px-4 py-3 ${toneClass}`}>
+      <p className="text-[11px] font-semibold uppercase tracking-[0.08em]">Agent activity</p>
+      <p className="mt-1 text-[13px] leading-relaxed">{notice.text}</p>
+    </article>
+  );
+}
+
 function buildPageContext(url: string, title: string): PageContext {
   return {
     ...INITIAL_PAGE,
@@ -611,6 +715,24 @@ function buildPageContext(url: string, title: string): PageContext {
     title: title.trim() || INITIAL_PAGE.title,
     siteName: url ? tryGetHostname(url) : INITIAL_PAGE.siteName,
   };
+}
+
+function buildPageContextInjection(url: string, title: string) {
+  const cleanUrl = url.trim();
+  const cleanTitle = title.trim();
+
+  if (!cleanUrl && !cleanTitle) {
+    return null;
+  }
+
+  return [
+    "[Current page context]",
+    cleanTitle ? `Title: ${cleanTitle}` : null,
+    cleanUrl ? `URL: ${cleanUrl}` : null,
+    "Use this as the current on-screen page reference for the user's live turn.",
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
 async function hydratePageContext({

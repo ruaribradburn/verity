@@ -42,7 +42,15 @@ export function PermissionsGate({ children }: Props) {
   }, [refresh]);
 
   if (!status) return null;
-  if (status.allGranted) return <>{children}</>;
+
+  const shouldBlock = status.items.some((item) => {
+    if (item.id === "microphone") {
+      return item.state === "denied";
+    }
+    return !item.granted;
+  });
+
+  if (!shouldBlock) return <>{children}</>;
 
   return <PermissionsPage status={status} onGrant={handleGrant} onRefresh={refresh} />;
 

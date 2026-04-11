@@ -8,6 +8,19 @@ export type AttachMicOptions = {
 const MIC_WORKLET_NAME = "verity-microphone-capture";
 const MIC_WORKLET_MODULE_URL = new URL("./microphone-capture.worklet.js", import.meta.url);
 
+type BrowserWindow = Window &
+  typeof globalThis & {
+    webkitAudioContext?: typeof AudioContext;
+  };
+
+function createAudioContext() {
+  const ctor = window.AudioContext ?? (window as BrowserWindow).webkitAudioContext;
+  if (!ctor) {
+    throw new Error("Web Audio is unavailable in this browser.");
+  }
+  return new ctor();
+}
+
 /**
  * Stream mic as 16 kHz PCM via `sendRealtimeInput` (Gemini Live requirement).
  * Always sends while connected — the Live session uses START_OF_ACTIVITY_INTERRUPTS for barge-in;
@@ -18,7 +31,7 @@ export async function attachMicrophoneToLiveSession(
   stream: MediaStream,
   options?: AttachMicOptions,
 ): Promise<() => void> {
-  const audioContext = new AudioContext();
+  const audioContext = createAudioContext();
   async function ensureRunning() {
     if (audioContext.state === "suspended") {
       await audioContext.resume();
@@ -34,29 +47,53 @@ export async function attachMicrophoneToLiveSession(
   const source = audioContext.createMediaStreamSource(stream);
   const mute = audioContext.createGain();
   mute.gain.value = 0;
-  await audioContext.audioWorklet.addModule(MIC_WORKLET_MODULE_URL.href);
-  const processor = new AudioWorkletNode(audioContext, MIC_WORKLET_NAME, {
-    numberOfInputs: 1,
-    numberOfOutputs: 1,
-    channelCount: 1,
-  });
+  let cleanupProcessor: (() => void) | null = null;
 
-  processor.port.onmessage = (event: MessageEvent<Float32Array>) => {
-    if (options?.shouldSend && !options.shouldSend()) return;
-    const input = event.data;
-    const pcm16 = downsampleToPcm16(input, audioContext.sampleRate, 16000);
-    if (pcm16.byteLength === 0) return;
-    manager.sendAudioChunk(pcm16ToBase64(pcm16));
-  };
+  if (audioContext.audioWorklet) {
+    await audioContext.audioWorklet.addModule(MIC_WORKLET_MODULE_URL.href);
+    const processor = new AudioWorkletNode(audioContext, MIC_WORKLET_NAME, {
+      numberOfInputs: 1,
+      numberOfOutputs: 1,
+      channelCount: 1,
+    });
 
-  source.connect(processor);
-  processor.connect(mute);
+    processor.port.onmessage = (event: MessageEvent<Float32Array>) => {
+      if (options?.shouldSend && !options.shouldSend()) return;
+      const input = event.data;
+      const pcm16 = downsampleToPcm16(input, audioContext.sampleRate, 16000);
+      if (pcm16.byteLength === 0) return;
+      manager.sendAudioChunk(pcm16ToBase64(pcm16));
+    };
+
+    source.connect(processor);
+    processor.connect(mute);
+    cleanupProcessor = () => {
+      processor.port.onmessage = null;
+      processor.disconnect();
+    };
+  } else {
+    const processor = audioContext.createScriptProcessor(4096, 1, 1);
+    processor.onaudioprocess = (event) => {
+      if (options?.shouldSend && !options.shouldSend()) return;
+      const input = event.inputBuffer.getChannelData(0);
+      const pcm16 = downsampleToPcm16(input, audioContext.sampleRate, 16000);
+      if (pcm16.byteLength === 0) return;
+      manager.sendAudioChunk(pcm16ToBase64(pcm16));
+    };
+
+    source.connect(processor);
+    processor.connect(mute);
+    cleanupProcessor = () => {
+      processor.onaudioprocess = null;
+      processor.disconnect();
+    };
+  }
+
   mute.connect(audioContext.destination);
 
   return () => {
     manager.sendAudioStreamEnd();
-    processor.port.onmessage = null;
-    processor.disconnect();
+    cleanupProcessor?.();
     source.disconnect();
     mute.disconnect();
     stream.getTracks().forEach((track) => track.stop());

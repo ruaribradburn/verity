@@ -33,7 +33,9 @@ chrome.runtime.onMessage.addListener(
       console.log("[verity/bg] Research request:", message.source, message.source === "query" ? message.query : message.source === "urls" ? `${message.urls.length} URLs` : `tab ${message.tabId}`);
 
       const broadcast = (event: ResearchEvent) => {
-        console.log("[verity/bg]", event.type);
+        if (event.type === "research:complete" || event.type === "research:error") {
+          console.log("[verity/bg]", event.type);
+        }
         chrome.runtime.sendMessage(event).catch(() => {});
       };
 
