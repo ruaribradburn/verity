@@ -44,82 +44,95 @@ export function PermissionsGate({ children }: Props) {
   if (!status) return null;
   if (status.allGranted) return <>{children}</>;
 
-  return <PermissionsPage status={status} granting={granting} onGrant={handleGrant} onRefresh={refresh} />;
+  return <PermissionsPage status={status} onGrant={handleGrant} onRefresh={refresh} />;
 
   async function handleGrant() {
     if (!status) return;
-    setGranting(true);
-    try {
-      const updated = await requestMissingPermissions(status);
-      setStatus(updated);
-    } finally {
-      setGranting(false);
-    }
+    const updated = await requestMissingPermissions(status);
+    setStatus(updated);
   }
 }
 
 function PermissionsPage({
   status,
+  onGrant,
   onRefresh,
 }: {
   status: PermissionStatus;
+  onGrant: () => void;
   onRefresh: () => void;
 }) {
   const missing = status.items.filter((item) => !item.granted);
   const hasGrantable = missing.some((item) => item.grantable);
-  const missingExtensionOrHost = missing.some((item) => item.id === "extension" || item.id === "host");
+  const needsAudioCapture = missing.some((item) => item.id === "audioCapture");
   const micDenied = missing.some((item) => item.id === "microphone" && !item.grantable);
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-[#f4efe6] p-6">
-      <div className="w-full max-w-md rounded-[2rem] border border-black/8 bg-white px-7 py-8 shadow-[0_18px_60px_rgba(0,0,0,0.06)]">
-        <p className="text-xs uppercase tracking-[0.34em] text-amber-700">Verity permissions</p>
-        <h1 className="mt-3 text-2xl font-semibold tracking-tight text-stone-900">
-          Setup needed
+    <div className="flex min-h-screen flex-col items-center justify-center bg-[var(--background)] px-6 py-10">
+      {/* Logo */}
+      <div className="mb-8 flex h-14 w-14 items-center justify-center rounded-2xl bg-[var(--accent-muted)]">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <path d="M12 3C7.03 3 3 7.03 3 12s4.03 9 9 9 9-4.03 9-9-4.03-9-9-9zm0 16.5c-4.14 0-7.5-3.36-7.5-7.5S7.86 4.5 12 4.5s7.5 3.36 7.5 7.5-3.36 7.5-7.5 7.5z" fill="var(--accent)" opacity="0.5" />
+          <circle cx="12" cy="12" r="3" fill="var(--accent)" />
+        </svg>
+      </div>
+
+      <div className="w-full max-w-sm">
+        <h1 className="text-center text-lg font-semibold tracking-tight text-[var(--foreground)]">
+          Permissions needed
         </h1>
-        <p className="mt-2 text-sm leading-6 text-stone-600">
-          Verity needs the following permissions to work.
-          {hasGrantable
-            ? " Grant microphone access below, then refresh if needed."
-            : " Follow any manual steps below, then click Refresh."}
+        <p className="mt-2 text-center text-[13px] leading-relaxed text-[var(--foreground-secondary)]">
+          Verity needs a few things enabled before it can start.
         </p>
 
-        <ul className="mt-6 space-y-3">
+        <div className="mt-6 space-y-2">
           {missing.map((item) => (
             <PermissionRow key={item.id} item={item} />
           ))}
-        </ul>
+        </div>
+
+        {needsAudioCapture && (
+          <div className="mt-4 rounded-xl border border-[var(--border)] bg-[var(--accent-muted)] px-4 py-3">
+            <p className="text-[12px] font-medium text-[var(--accent-text)]">Enable audio recording</p>
+            <ol className="mt-2 list-inside list-decimal space-y-1 text-[12px] leading-relaxed text-[var(--foreground-secondary)]">
+              <li>Open <strong className="text-[var(--foreground)]">chrome://extensions</strong></li>
+              <li>Find <strong className="text-[var(--foreground)]">Verity</strong> and click <strong className="text-[var(--foreground)]">Details</strong></li>
+              <li>Toggle on <strong className="text-[var(--foreground)]">&ldquo;Record audio&rdquo;</strong></li>
+              <li>Come back and tap <strong className="text-[var(--foreground)]">Refresh</strong></li>
+            </ol>
+          </div>
+        )}
 
         {micDenied && (
-          <div className="mt-5 rounded-xl bg-red-50 px-4 py-3">
-            <p className="text-xs leading-5 text-red-800">
-              Microphone access was denied at the browser level. Open{" "}
-              <strong>chrome://settings/content/microphone</strong>, allow Verity, then click Refresh.
+          <div className="mt-4 rounded-xl border border-[var(--border)] bg-[var(--error-muted)] px-4 py-3">
+            <p className="text-[12px] font-medium text-[var(--error)]">Microphone blocked</p>
+            <p className="mt-1 text-[12px] leading-relaxed text-[var(--foreground-secondary)]">
+              Open <strong className="text-[var(--foreground)]">chrome://settings/content/microphone</strong>, remove Verity from the blocked list, then refresh.
             </p>
           </div>
         )}
 
-        {missingExtensionOrHost && (
-          <div className="mt-5 rounded-xl bg-amber-50 px-4 py-3">
-            <p className="text-xs font-medium text-amber-900">Extension reinstall may be required</p>
-            <p className="mt-1 text-xs leading-5 text-amber-800">
-              Verity is missing manifest-backed permissions that should have been granted at install time.
-              Reload the unpacked extension or reinstall it from the latest build, then click{" "}
-              <strong>Refresh</strong>.
-            </p>
-          </div>
-        )}
+        <div className="mt-6 flex gap-3">
+          {hasGrantable && (
+            <button
+              type="button"
+              onClick={onGrant}
+              className="flex-1 cursor-pointer rounded-full bg-[var(--accent)] py-3 text-center text-[13px] font-medium text-[var(--background)] transition-all duration-200 hover:brightness-110"
+            >
+              Grant access
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={onRefresh}
+            className={`cursor-pointer rounded-full border border-[var(--border-strong)] bg-transparent py-3 text-center text-[13px] font-medium text-[var(--foreground-secondary)] transition-colors duration-200 hover:text-[var(--foreground)] ${hasGrantable ? "flex-1" : "w-full"}`}
+          >
+            Refresh
+          </button>
+        </div>
 
-        <button
-          type="button"
-          onClick={onRefresh}
-          className="mt-6 w-full rounded-full bg-stone-950 px-5 py-3 text-sm font-medium text-stone-50 transition hover:bg-amber-700"
-        >
-          Refresh
-        </button>
-
-        <p className="mt-4 text-center text-xs text-stone-400">
-          Verity only uses these permissions for voice sessions and page research.
+        <p className="mt-6 text-center text-[11px] leading-relaxed text-[var(--foreground-muted)]">
+          These permissions are used only during live sessions. Nothing is stored or sent beyond your Gemini API calls.
         </p>
       </div>
     </div>
@@ -128,18 +141,26 @@ function PermissionsPage({
 
 function PermissionRow({ item }: { item: PermissionItem }) {
   return (
-    <li className="flex items-start gap-3 rounded-xl border border-stone-200 bg-stone-50 px-4 py-3">
+    <div className="flex items-start gap-3 rounded-xl border border-[var(--border)] bg-[var(--background-elevated)] px-4 py-3">
       <div className="mt-0.5 flex-shrink-0">
-        <div className="flex h-5 w-5 items-center justify-center rounded-full bg-red-100">
-          <svg className="h-3 w-3 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-          </svg>
-        </div>
+        {item.granted ? (
+          <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[var(--success-muted)]">
+            <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="var(--success)" strokeWidth={3}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+            </svg>
+          </span>
+        ) : (
+          <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[var(--accent-muted)]">
+            <span className="h-2 w-2 rounded-full bg-[var(--accent)]" />
+          </span>
+        )}
       </div>
       <div className="min-w-0 flex-1">
-        <p className="text-sm font-medium text-stone-900">{item.label}</p>
-        <p className="mt-0.5 text-xs leading-5 text-stone-500">{item.description}</p>
+        <p className={`text-[13px] font-medium ${item.granted ? "text-[var(--foreground-muted)]" : "text-[var(--foreground)]"}`}>
+          {item.label}
+        </p>
+        <p className="mt-0.5 text-[12px] leading-relaxed text-[var(--foreground-muted)]">{item.description}</p>
       </div>
-    </li>
+    </div>
   );
 }

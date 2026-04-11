@@ -420,7 +420,13 @@ Agents **do not** each emit a separate chat stream to the user by default; the p
 
 ---
 
-# 13. Future Opportunities
+# 13. Implementation status (codebase)
+
+The **authoritative** “what is implemented vs what remains” checklist (aligned with this PDR) lives in **[docs/architecture.md — Implementation status](./architecture.md#implementation-status)**. It summarizes done work, partial gaps, and Phase 2+ items not yet built in `packages/*`.
+
+---
+
+# 14. Future Opportunities
 
 * Enterprise intelligence tool
 * API for journalists

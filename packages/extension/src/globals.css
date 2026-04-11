@@ -1,14 +1,28 @@
 @import "tailwindcss";
 
 :root {
-  --background: #081c1d;
-  --background-deep: #051314;
-  --foreground: #edf3f0;
-  --foreground-muted: #90a39d;
-  --border: #294240;
-  --border-soft: rgba(41, 66, 64, 0.45);
-  --border-strong: #41605d;
-  --accent: #b9cdc4;
+  /* Warm, trustworthy palette — not cold/techy teal */
+  --background: #111110;
+  --background-elevated: #1a1a19;
+  --background-surface: #222221;
+  --foreground: #ededec;
+  --foreground-secondary: #a1a09e;
+  --foreground-muted: #706f6c;
+  --border: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.14);
+  --accent: #e8a545;
+  --accent-muted: rgba(232, 165, 69, 0.14);
+  --accent-text: #f0c278;
+  --success: #4ade80;
+  --success-muted: rgba(74, 222, 128, 0.12);
+  --error: #f87171;
+  --error-muted: rgba(248, 113, 113, 0.12);
+  --user-bg: #1e2a3a;
+  --user-border: rgba(96, 165, 250, 0.18);
+  --user-text: #d4e3f5;
+  --assistant-bg: #1a2e24;
+  --assistant-border: rgba(74, 222, 128, 0.18);
+  --assistant-text: #d4f0e0;
 }
 
 html {
@@ -19,11 +33,11 @@ html {
 body {
   margin: 0;
   min-height: 100vh;
-  background:
-    radial-gradient(circle at top, rgba(77, 116, 109, 0.14), transparent 28%),
-    linear-gradient(180deg, #0a1f21 0%, #061112 100%);
+  background: var(--background);
   color: var(--foreground);
-  font-family: "IBM Plex Sans", "Segoe UI", "Helvetica Neue", sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 * {
@@ -46,6 +60,6 @@ summary::-webkit-details-marker {
 }
 
 ::selection {
-  background: rgba(185, 205, 196, 0.22);
+  background: rgba(232, 165, 69, 0.25);
   color: var(--foreground);
 }

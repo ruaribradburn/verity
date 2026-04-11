@@ -1,5 +1,11 @@
 # Verity Architecture
 
+> **Deprecated layout.** The live codebase is a **Bun workspace** under `packages/*` (`packages/web`, `packages/api`, `packages/client`, `packages/core`, `packages/extension`). This file describes an older **top-level `src/`** layout that is no longer authoritative.
+>
+> **Current architecture and implementation status (done vs remaining):** see [`docs/architecture.md`](docs/architecture.md) and [`docs/PDR.md`](docs/PDR.md) section 13. For navigation, prefer root [`AGENTS.md`](AGENTS.md).
+
+---
+
 ## Purpose
 
 Verity is currently a TypeScript-only Phase 1 "voice analyst" slice. The system combines:

@@ -32,8 +32,17 @@ export default function App() {
   const [voiceResearch, setVoiceResearch] = useState<VoiceResearchStatus>({ phase: "idle" });
   const voiceResearchRef = useRef(voiceResearch);
   voiceResearchRef.current = voiceResearch;
+  const autoTriggerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Clean up auto-trigger timer on unmount
+  useEffect(() => {
+    return () => {
+      if (autoTriggerTimerRef.current) clearTimeout(autoTriggerTimerRef.current);
+    };
+  }, []);
   /** Capture what Gemini said in its immediate (grounding-only) response for cross-referencing. */
   const immediateResponseRef = useRef("");
+  const pendingToolCallRef = useRef<{ id: string; name: string } | null>(null);
 
   useEffect(() => {
     if (typeof chrome === "undefined" || !chrome.tabs?.query) return;
@@ -98,13 +107,23 @@ export default function App() {
           );
           break;
 
-        case "research:error":
+        case "research:error": {
+          // Send error response back to Gemini so it doesn't hang waiting for a tool response.
+          const pending = pendingToolCallRef.current;
+          if (pending && managerRef.current) {
+            managerRef.current.sendToolResponse(pending.id, pending.name, {
+              status: "error",
+              error: message.error,
+            });
+            pendingToolCallRef.current = null;
+          }
           setVoiceResearch((prev) =>
             prev.phase === "researching"
               ? { phase: "error", query: prev.query, error: message.error }
               : { phase: "error", query: "", error: message.error },
           );
           break;
+        }
       }
     }
 
@@ -171,6 +190,17 @@ export default function App() {
         ].join("\n");
 
         manager.sendContext(formatted);
+
+        // Send tool response back to Gemini so it knows research is complete
+        const pending = pendingToolCallRef.current;
+        if (pending && manager) {
+          manager.sendToolResponse(pending.id, pending.name, {
+            status: "complete",
+            sources_found: event.contexts.length,
+            summary: briefing.summary.slice(0, 500),
+          });
+          pendingToolCallRef.current = null;
+        }
         return;
       }
     } catch {
@@ -194,29 +224,112 @@ export default function App() {
         `If these sources contradict something you said, correct it explicitly. ` +
         `Cite sources by number. Do not repeat raw text.`,
     );
+
+    const pending = pendingToolCallRef.current;
+    if (pending && manager) {
+      manager.sendToolResponse(pending.id, pending.name, {
+        status: "complete",
+        sources_found: event.contexts.length,
+        summary: `Found ${event.contexts.length} sources.`,
+      });
+      pendingToolCallRef.current = null;
+    }
   }
 
   const handleUserTurnComplete = useCallback((text: string) => {
-    // Don't trigger research if one is already running.
+    // Don't auto-trigger if research is already running (from tool call or previous auto-trigger)
     if (voiceResearchRef.current.phase === "researching") return;
-    // Only research substantial queries (not short acknowledgements).
-    if (text.length < 15) return;
+    // Don't trigger for short utterances
+    if (text.length < 20) return;
+    // Only auto-trigger for analytical queries
+    if (!isAnalyticalQuery(text)) return;
 
-    setVoiceResearch({
-      phase: "researching",
-      query: text,
-      pagesRead: 0,
-      totalPages: 0,
-      status: "Starting research...",
-      recentSources: [],
-    });
+    // Give Gemini 3 seconds to call a tool itself. If it doesn't, auto-trigger.
+    if (autoTriggerTimerRef.current) clearTimeout(autoTriggerTimerRef.current);
+    autoTriggerTimerRef.current = setTimeout(() => {
+      // Check again — Gemini might have called a tool in the meantime
+      if (voiceResearchRef.current.phase !== "idle") return;
 
-    chrome.runtime.sendMessage({
-      type: "research:start",
-      source: "query",
-      query: text,
-    });
+      console.log("[verity/ext] Auto-triggering research (Gemini did not call tools):", text.slice(0, 80));
+
+      setVoiceResearch({
+        phase: "researching",
+        query: text,
+        pagesRead: 0,
+        totalPages: 0,
+        status: "Auto-triggered deep research...",
+        recentSources: [],
+      });
+
+      chrome.runtime.sendMessage({
+        type: "research:start",
+        source: "query",
+        query: text,
+      });
+    }, 3000);
   }, []);
+
+  const handleToolCall = useCallback(
+    (call: { id: string; name: string; args: Record<string, unknown> }, manager: LiveSessionManager) => {
+      // Cancel auto-trigger timer since Gemini called a tool explicitly
+      if (autoTriggerTimerRef.current) {
+        clearTimeout(autoTriggerTimerRef.current);
+        autoTriggerTimerRef.current = null;
+      }
+
+      // Don't stack concurrent research
+      if (voiceResearchRef.current.phase === "researching") {
+        manager.sendToolResponse(call.id, call.name, {
+          error: "Research is already in progress. Please wait for the current research to complete.",
+        });
+        return;
+      }
+
+      // Build search query based on which function Gemini called
+      let query: string;
+      switch (call.name) {
+        case "research_topic":
+          query = String(call.args.query ?? "");
+          break;
+        case "fact_check_claim":
+          query = `fact check: ${String(call.args.claim ?? "")}`;
+          break;
+        case "find_opposing_views":
+          query = `${String(call.args.topic ?? "")} opposing view OR criticism OR counterargument`;
+          break;
+        case "research_entity":
+          query = `${String(call.args.entity_name ?? "")} ${String(call.args.context ?? "")}`.trim();
+          break;
+        default:
+          manager.sendToolResponse(call.id, call.name, { error: `Unknown function: ${call.name}` });
+          return;
+      }
+
+      if (!query.trim()) {
+        manager.sendToolResponse(call.id, call.name, { error: "Empty query — cannot research." });
+        return;
+      }
+
+      // Store the call info so we can send the response when research completes
+      pendingToolCallRef.current = { id: call.id, name: call.name };
+
+      setVoiceResearch({
+        phase: "researching",
+        query,
+        pagesRead: 0,
+        totalPages: 0,
+        status: `Gemini requested: ${call.name}`,
+        recentSources: [],
+      });
+
+      chrome.runtime.sendMessage({
+        type: "research:start",
+        source: "query",
+        query,
+      });
+    },
+    [],
+  );
 
   const handleManagerReady = useCallback((manager: LiveSessionManager) => {
     managerRef.current = manager;
@@ -232,11 +345,34 @@ export default function App() {
         initialPageTitle={tabHint?.title}
         prepareLiveMediaCapture={ensureLiveSessionMediaPolicy}
         onUserTurnComplete={handleUserTurnComplete}
+        onToolCall={handleToolCall}
         onManagerReady={handleManagerReady}
         inlineCard={researchInlineCard}
       />
     </div>
   );
+}
+
+/** Detect if a user utterance is analytical and should trigger research. */
+function isAnalyticalQuery(text: string): boolean {
+  const lower = text.toLowerCase();
+  // Analytical intent signals
+  const analyticalTerms = [
+    "analyze", "analyse", "analysis",
+    "what do you think", "is this true", "is that true", "is this accurate",
+    "fact check", "fact-check", "verify", "check this",
+    "what's missing", "what am i missing", "missing context",
+    "bias", "biased", "framing", "misleading",
+    "evidence", "source", "credib", "reliab",
+    "opposing view", "other side", "counterargument", "counter-argument",
+    "research", "investigate", "look into", "dig into",
+    "what does the data say", "what do experts say",
+    "is this real", "debunk", "claim",
+    "article", "news", "report says", "according to",
+    "who is", "what is the background", "tell me about",
+    "compare", "contrast", "different perspective",
+  ];
+  return analyticalTerms.some((term) => lower.includes(term));
 }
 
 function buildResearchInlineCard(status: VoiceResearchStatus): LiveInlineCard | null {

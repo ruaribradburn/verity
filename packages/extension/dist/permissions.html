@@ -7,41 +7,47 @@
     <style>
       * { box-sizing: border-box; margin: 0; padding: 0; }
       body {
-        font-family: "Segoe UI", "Aptos", "Helvetica Neue", sans-serif;
-        background: #f4efe6;
-        color: #1d140e;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        background: #111110;
+        color: #ededec;
         display: flex;
         align-items: center;
         justify-content: center;
         min-height: 100vh;
         padding: 2rem;
+        -webkit-font-smoothing: antialiased;
       }
       .card {
-        background: white;
-        border-radius: 2rem;
-        border: 1px solid rgba(0,0,0,0.08);
-        box-shadow: 0 18px 60px rgba(0,0,0,0.06);
+        background: #1a1a19;
+        border-radius: 1.25rem;
+        border: 1px solid rgba(255,255,255,0.08);
         padding: 2.5rem;
-        max-width: 520px;
+        max-width: 420px;
         width: 100%;
       }
-      .label {
-        font-size: 0.7rem;
-        text-transform: uppercase;
-        letter-spacing: 0.34em;
-        color: #b45309;
-        margin-bottom: 1rem;
+      .logo {
+        width: 48px;
+        height: 48px;
+        background: rgba(232, 165, 69, 0.14);
+        border-radius: 0.75rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin: 0 auto 1.5rem;
       }
+      .logo svg { display: block; }
       h1 {
-        font-size: 1.6rem;
+        font-size: 1.15rem;
         font-weight: 600;
-        letter-spacing: -0.03em;
-        margin-bottom: 0.75rem;
+        letter-spacing: -0.02em;
+        text-align: center;
+        margin-bottom: 0.5rem;
       }
       p {
-        font-size: 0.875rem;
-        line-height: 1.7;
-        color: #57534e;
+        font-size: 0.82rem;
+        line-height: 1.6;
+        color: #a1a09e;
+        text-align: center;
         margin-bottom: 1.5rem;
       }
       .perm-list {
@@ -53,9 +59,9 @@
         align-items: flex-start;
         gap: 0.75rem;
         padding: 0.75rem 1rem;
-        border-radius: 1rem;
-        border: 1px solid #e7e5e4;
-        background: #fafaf9;
+        border-radius: 0.75rem;
+        border: 1px solid rgba(255,255,255,0.08);
+        background: #222221;
         margin-bottom: 0.5rem;
       }
       .perm-dot {
@@ -65,71 +71,77 @@
         margin-top: 5px;
         flex-shrink: 0;
       }
-      .perm-dot.pending { background: #f59e0b; }
-      .perm-dot.granted { background: #22c55e; }
+      .perm-dot.pending { background: #e8a545; }
+      .perm-dot.granted { background: #4ade80; }
       .perm-name {
-        font-size: 0.85rem;
+        font-size: 0.82rem;
         font-weight: 500;
-        color: #1c1917;
+        color: #ededec;
       }
       .perm-desc {
         font-size: 0.75rem;
-        color: #78716c;
+        color: #706f6c;
         margin-top: 2px;
+        line-height: 1.5;
       }
       .actions { display: flex; gap: 0.75rem; }
       button {
         font: inherit;
-        background: #0c0a09;
-        color: #fafaf9;
+        background: #e8a545;
+        color: #111110;
         border: none;
         border-radius: 9999px;
         padding: 0.75rem 1.5rem;
-        font-size: 0.875rem;
+        font-size: 0.82rem;
         font-weight: 500;
         cursor: pointer;
-        transition: background 0.15s;
+        transition: filter 0.2s;
         flex: 1;
       }
-      button:hover { background: #b45309; }
+      button:hover { filter: brightness(1.1); }
       button:disabled { opacity: 0.5; cursor: default; }
       button.secondary {
-        background: white;
-        color: #44403c;
-        border: 1px solid #d6d3d1;
+        background: transparent;
+        color: #a1a09e;
+        border: 1px solid rgba(255,255,255,0.14);
         flex: none;
+        padding-left: 1.25rem;
+        padding-right: 1.25rem;
       }
-      button.secondary:hover { border-color: #0c0a09; color: #0c0a09; background: white; }
+      button.secondary:hover { color: #ededec; border-color: rgba(255,255,255,0.25); filter: none; }
       .status {
         margin-top: 1.25rem;
-        font-size: 0.8rem;
-        color: #57534e;
+        font-size: 0.78rem;
+        color: #706f6c;
         text-align: center;
       }
-      .status.success { color: #15803d; }
-      .status.error { color: #b91c1c; }
+      .status.success { color: #4ade80; }
+      .status.error { color: #f87171; }
     </style>
     <script type="module" crossorigin src="./assets/permissions-DffFHAz8.js"></script>
     <link rel="modulepreload" crossorigin href="./assets/permissions-check-DtM4GrBm.js">
   </head>
   <body>
     <div class="card">
-      <div class="label">Verity permissions</div>
-      <h1>Grant all permissions</h1>
+      <div class="logo">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+          <path d="M12 3C7.03 3 3 7.03 3 12s4.03 9 9 9 9-4.03 9-9-4.03-9-9-9zm0 16.5c-4.14 0-7.5-3.36-7.5-7.5S7.86 4.5 12 4.5s7.5 3.36 7.5 7.5-3.36 7.5-7.5 7.5z" fill="#e8a545" opacity="0.5" />
+          <circle cx="12" cy="12" r="3" fill="#e8a545" />
+        </svg>
+      </div>
+      <h1>Grant permissions</h1>
       <p>
-        Verity needs <strong>microphone</strong> access for voice input,
-        <strong>tab</strong> access for page research, and
-        <strong>local API</strong> access to communicate with the Verity backend.
-        Grant everything below, then return to the side panel.
+        Verity needs <strong style="color:#ededec">microphone</strong> access for voice input
+        and <strong style="color:#ededec">local API</strong> access to power live analysis.
       </p>
 
       <ul class="perm-list" id="perm-list"></ul>
 
       <div class="actions">
-        <button id="grant">Grant all permissions</button>
+        <button id="grant">Grant access</button>
         <button class="secondary" id="refresh">Refresh</button>
       </div>
       <div id="status" class="status"></div>
-    </div>
+    </div>
   </body>
 </html>

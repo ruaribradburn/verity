@@ -310,6 +310,89 @@ export function createPageContextFunctionDeclaration(): LiveFunctionDeclaration 
   };
 }
 
+/** Research tool declarations for Gemini Live function calling. */
+export function createResearchToolDeclarations(): LiveFunctionDeclaration[] {
+  return [
+    {
+      name: "research_topic",
+      description:
+        "Search the web for information about a topic when you need more context, evidence, or opposing viewpoints to answer the user's question well. Use this when the page content alone is insufficient.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: {
+            type: "string",
+            description: "The search query to research. Be specific and analytical.",
+          },
+          reason: {
+            type: "string",
+            description:
+              "Brief explanation of why this research is needed (e.g. 'verify claim about X', 'find opposing views on Y').",
+          },
+        },
+        required: ["query", "reason"],
+      },
+    },
+    {
+      name: "fact_check_claim",
+      description:
+        "Fact-check a specific claim by searching for evidence that supports or contradicts it. Use when the user asks about accuracy or you detect a claim that needs verification.",
+      parameters: {
+        type: "object",
+        properties: {
+          claim: {
+            type: "string",
+            description: "The specific claim to fact-check, stated clearly.",
+          },
+          source_url: {
+            type: "string",
+            description: "The URL where this claim appeared, if known.",
+          },
+        },
+        required: ["claim"],
+      },
+    },
+    {
+      name: "find_opposing_views",
+      description:
+        "Find alternative perspectives, counterarguments, or opposing viewpoints on a topic. Use when the current page presents only one side or the user asks for balance.",
+      parameters: {
+        type: "object",
+        properties: {
+          topic: {
+            type: "string",
+            description: "The topic to find opposing views on.",
+          },
+          current_stance: {
+            type: "string",
+            description: "Brief description of the stance the current page takes.",
+          },
+        },
+        required: ["topic"],
+      },
+    },
+    {
+      name: "research_entity",
+      description:
+        "Research a specific person, organization, or entity mentioned in the content. Use when you need background on who someone is, their track record, or their connections.",
+      parameters: {
+        type: "object",
+        properties: {
+          entity_name: {
+            type: "string",
+            description: "The name of the person, organization, or entity to research.",
+          },
+          context: {
+            type: "string",
+            description: "Brief context about why this entity is relevant to the current analysis.",
+          },
+        },
+        required: ["entity_name"],
+      },
+    },
+  ];
+}
+
 export function buildLiveSystemInstruction(page: PageContext | null) {
   const pageContext = page
     ? [
@@ -328,9 +411,10 @@ export function buildLiveSystemInstruction(page: PageContext | null) {
     "Mission: help the user verify the information they are receiving while they analyse the web by surfacing framing, omitted context, contested points, and what appears better-supported, while preserving the user's agency.",
     "Epistemic stance: stay concise, factual, neutral, informative, and direct. Give a depolarized analytical briefing, not a verdict. Prefer evidence-weighted language about support, uncertainty, disagreement, and limits. Do not say or imply 'this is true' or 'this is false' unless the evidence shown is unusually clear and you still state the basis and limits.",
     "Grounding rules: stay grounded in the live page, screen context, the user's question, and the tools actually available in this session. Explicitly distinguish between what the page shows, what it suggests, and what it does not establish. Do not invent unseen sources, hidden browsing steps, or capabilities beyond live page context and Google Search grounding.",
-    "Research rules: when outside verification would materially help, actively use Google Search grounding to seek multiple vetted sources and contrasting perspectives. Prefer high-quality reporting such as Reuters, BBC News, Financial Times, relevant local reporting, and credible alternative perspectives when available. Name important source limits when the evidence base is narrow, stale, partisan, or second-hand.",
+    "Research rules: you have four research tools available — research_topic, fact_check_claim, find_opposing_views, and research_entity. USE THEM PROACTIVELY. When the user asks you to analyse an article, verify a claim, check the news, evaluate a source, or asks any question that would benefit from external evidence — call the appropriate research tool IMMEDIATELY alongside your initial response. Do not rely solely on Google Search grounding for analytical questions. The research tools trigger deep multi-source investigation that will provide richer context. For simple factual lookups (dates, definitions, quick facts), Google Search grounding alone is fine. For anything analytical, investigative, or requiring verification — call the tools.",
     "Source diversity: when research sources are provided, draw on the widest available range — wire services, public broadcasters, regional/local outlets, social discussion, video, and analysis. Note source type when it affects credibility (e.g. state-affiliated media, tabloid framing). Prefer corroboration across source types over volume from a single type.",
     "Delivery rules: keep answers ideally under 3 sentences unless the user explicitly asks for more. Lead with the clearest useful takeaway, then give only the highest-signal supporting point or two. Keep any humour dry and brief. Do not be sycophantic, flattering, preachy, hectoring, or prescriptive.",
+    "Action bias: when the user asks for analysis, verification, fact-checking, or research — ACT IMMEDIATELY. Do not ask follow-up questions like 'Would you like me to look into that?', 'Shall I research this?', or 'Do you want me to verify that?' Just do it. Call the research tools, give your analysis, and present findings. The user asked — that is the instruction. Only ask clarifying questions when the request is genuinely ambiguous (e.g. the user said a single word with no context).",
     "Interaction rules: do not agree with the user reflexively. If the user's question contains an explicit bias, loaded framing, or a weak premise, acknowledge that professionally and, when appropriate, challenge it directly. When the available evidence points against the user's framing, say so plainly.",
     "Language rules: use natural British English. If the user asks for another language, keep the same analytical stance and preserve uncertainty rather than making stronger claims in translation.",
     pageContext,
@@ -479,6 +563,8 @@ export type AnalysisContext = {
   evidenceBundles: EvidenceBundle[];
   credibilityScores: CredibilityScore[];
   language: string;
+  /** Session-scoped graph relationships (from graph agent + SQLite persistence). */
+  graphSummary?: string;
 };
 
 /** The 6-section briefing output format (PDR §5.3). */

@@ -5,7 +5,11 @@ import type {
   OrchestrationResponse,
 } from "@packages/core";
 import { runExtractionAgent } from "./agents/extraction";
-import { runAnalysisAgent } from "./agents/analysis";
+import { runBiasAgent } from "./agents/bias";
+import { runCredibilityAgent } from "./agents/credibility";
+import { runResearchAgent } from "./agents/research";
+import { runFactCheckAgent } from "./agents/fact-check";
+import { runGraphAgent } from "./agents/graph-agent";
 import { runSynthesisAgent } from "./agents/synthesis";
 
 const ORCHESTRATOR_TIMEOUT_MS = 30_000;
@@ -17,13 +21,8 @@ export async function runOrchestration(
   const sessionId = `sess_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   const agents: AgentResult<unknown>[] = [];
 
-  // All input pages: user-provided + research contexts
-  const allPages = [
-    ...request.pages,
-    ...(request.researchContexts ?? []),
-  ];
+  const allPages = [...request.pages, ...(request.researchContexts ?? [])];
 
-  // Build initial context
   const context: AnalysisContext = {
     sessionId,
     pages: allPages,
@@ -33,10 +32,10 @@ export async function runOrchestration(
     evidenceBundles: [],
     credibilityScores: [],
     language: "en",
+    graphSummary: "",
   };
 
   try {
-    // Step 1: Extraction — must complete before analysis
     const extraction = await withTimeout(
       runExtractionAgent(apiKey, allPages),
       ORCHESTRATOR_TIMEOUT_MS,
@@ -49,20 +48,50 @@ export async function runOrchestration(
       context.entities = extraction.data.entities;
     }
 
-    // Step 2: Analysis — uses extraction results
-    const analysis = await withTimeout(
-      runAnalysisAgent(apiKey, allPages, context.claims, context.entities),
-      ORCHESTRATOR_TIMEOUT_MS,
-      "analysis",
-    );
-    agents.push(analysis);
+    const [research, bias, credibility, graph] = await Promise.all([
+      withTimeout(
+        runResearchAgent(apiKey, allPages, context.claims, request.userPrompt),
+        ORCHESTRATOR_TIMEOUT_MS,
+        "research",
+      ),
+      withTimeout(runBiasAgent(apiKey, allPages, context.claims, context.entities), ORCHESTRATOR_TIMEOUT_MS, "bias"),
+      withTimeout(
+        runCredibilityAgent(apiKey, allPages, context.claims, context.entities),
+        ORCHESTRATOR_TIMEOUT_MS,
+        "credibility",
+      ),
+      withTimeout(
+        runGraphAgent(apiKey, sessionId, context.claims, context.entities),
+        ORCHESTRATOR_TIMEOUT_MS,
+        "graph",
+      ),
+    ]);
 
-    if (analysis.ok && analysis.data) {
-      context.biasSignals = analysis.data.biasSignals;
-      context.credibilityScores = analysis.data.credibilityScores;
+    agents.push(research, bias, credibility, graph);
+
+    if (bias.ok && bias.data) {
+      context.biasSignals = bias.data.biasSignals;
+    }
+    if (credibility.ok && credibility.data) {
+      context.credibilityScores = credibility.data.credibilityScores;
+    }
+    if (graph.ok && graph.data) {
+      context.graphSummary = graph.data.summary;
     }
 
-    // Step 3: Synthesis — merges everything into a briefing
+    const researchCues = research.ok && research.data ? research.data.cues : [];
+
+    const factCheck = await withTimeout(
+      runFactCheckAgent(apiKey, context.claims, researchCues),
+      ORCHESTRATOR_TIMEOUT_MS,
+      "fact-check",
+    );
+    agents.push(factCheck);
+
+    if (factCheck.ok && factCheck.data) {
+      context.evidenceBundles = factCheck.data.evidenceBundles;
+    }
+
     const synthesis = await withTimeout(
       runSynthesisAgent(apiKey, context, request.userPrompt),
       ORCHESTRATOR_TIMEOUT_MS,
@@ -79,7 +108,6 @@ export async function runOrchestration(
       };
     }
 
-    // Synthesis failed but we have partial context
     return {
       ok: false,
       error: synthesis.error ?? "Synthesis agent did not produce a briefing.",
