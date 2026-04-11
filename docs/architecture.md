@@ -88,7 +88,7 @@ This section tracks the **current codebase** against [PDR.md](./PDR.md). The exe
 | **Orchestrator + shared schema (PDR §4.6, §6.2)** | `packages/api/src/orchestrator.ts` runs extraction → analysis → synthesis. `AnalysisContext`, `Briefing`, claims/entities/bias/credibility types in `packages/core/index.ts`. |
 | **Agents** | Extraction (`agents/extraction.ts`), analysis (`agents/analysis.ts`), synthesis (`agents/synthesis.ts`) producing the six PDR §5.3 sections with depolarized, uncertainty-aware prompts (PDR §1.5). |
 | **Multi-page input** | `POST /analyze/full` accepts `pages: PageContext[]` plus optional `researchContexts`. Batches multiple URLs/texts in one orchestration run. |
-| **Page hydration** | `POST /page/context` (trafilatura + vision fallback). |
+| **Page hydration** | `POST /page/context` (trafilatura for article text; Gemini vision for URL resolution from screen when no URL hint is provided). |
 | **Gemini Live voice (PDR §1.6, §4.10)** | Ephemeral tokens, mic/screen, Google Search at connect, briefing injected via `sendContext()` so voice aligns with the same structured briefing as text. |
 | **Extension “autonomous research”** | Client-side query/SERP workflow, parallel page reads, then `POST /analyze/full` — not server-side connectors. See `packages/extension/src/research/`. |
 | **API surface** | Health, live config/token, analyze endpoints as listed above; CORS for local extension origins. |

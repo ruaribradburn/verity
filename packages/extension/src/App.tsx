@@ -99,13 +99,23 @@ export default function App() {
           );
           break;
 
-        case "research:error":
+        case "research:error": {
+          // Send error response back to Gemini so it doesn't hang waiting for a tool response.
+          const pending = pendingToolCallRef.current;
+          if (pending && managerRef.current) {
+            managerRef.current.sendToolResponse(pending.id, pending.name, {
+              status: "error",
+              error: message.error,
+            });
+            pendingToolCallRef.current = null;
+          }
           setVoiceResearch((prev) =>
             prev.phase === "researching"
               ? { phase: "error", query: prev.query, error: message.error }
               : { phase: "error", query: "", error: message.error },
           );
           break;
+        }
       }
     }
 
