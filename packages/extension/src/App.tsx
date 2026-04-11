@@ -116,6 +116,22 @@ export default function App() {
     const manager = managerRef.current;
     if (!manager || event.contexts.length === 0) return;
 
+    const priorResponse = immediateResponseRef.current;
+    const userQuery =
+      voiceResearchRef.current.phase === "researching"
+        ? voiceResearchRef.current.query
+        : voiceResearchRef.current.phase === "done"
+          ? voiceResearchRef.current.query
+          : "";
+
+    // Build cross-reference preamble when we have Gemini's immediate response.
+    const crossRef = priorResponse
+      ? `[Your initial response (from Google Search grounding) said:]\n"${priorResponse.slice(0, 600)}"\n\n` +
+        `The deep research below may confirm, contradict, or add nuance to what you already said. ` +
+        `Cross-reference the two: correct anything inaccurate, highlight new information, ` +
+        `and note where the deep sources agree or disagree with your initial answer.\n\n`
+      : "";
+
     try {
       // Try the full orchestrated pipeline
       const response = await fetch(`${apiOrigin}/analyze/full`, {
@@ -123,7 +139,8 @@ export default function App() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           pages: event.contexts,
-          userPrompt: voiceResearchRef.current.phase === "researching" ? voiceResearchRef.current.query : "",
+          userPrompt: userQuery,
+          priorResponse: priorResponse || undefined,
           mode: "analyst",
         }),
       });
@@ -135,6 +152,7 @@ export default function App() {
         const formatted = [
           `[Verity Analysis — ${event.contexts.length} sources, ${result.agents?.length ?? 3} agents]`,
           "",
+          crossRef,
           `**Summary:** ${briefing.summary}`,
           "",
           `**Framing & Bias:** ${briefing.framingAndBias}`,
@@ -147,7 +165,9 @@ export default function App() {
           "",
           `**What to Read Next:** ${briefing.whatToReadNext}`,
           "",
-          `Confidence: ${briefing.metadata?.confidence ?? "medium"}. Synthesize this into your response — cite specific findings, do not repeat raw text.`,
+          `Confidence: ${briefing.metadata?.confidence ?? "medium"}. ` +
+            `Synthesize this into a follow-up that adds to or corrects your initial response. ` +
+            `Cite specific findings. Do not repeat raw text.`,
         ].join("\n");
 
         manager.sendContext(formatted);
@@ -157,7 +177,7 @@ export default function App() {
       // Fall through to fallback
     }
 
-    // Fallback: inject raw page snippets (original behavior)
+    // Fallback: inject raw page snippets with cross-reference
     const summary = event.contexts
       .map((ctx, i) => {
         const source = ctx.siteName ?? tryHostname(ctx.url);
@@ -167,9 +187,12 @@ export default function App() {
       .join("\n\n");
 
     manager.sendContext(
-      `[Verity Research — ${event.contexts.length} sources collected]\n\n${summary}\n\n` +
-        `Use these sources to give a more grounded, evidence-aware response to the user's last question. ` +
-        `Cite sources by number when relevant. Do not repeat the raw text back — synthesize.`,
+      `[Verity Research — ${event.contexts.length} sources collected]\n\n` +
+        crossRef +
+        summary +
+        `\n\nSynthesize these sources into a follow-up. If your initial response was accurate, confirm and deepen it. ` +
+        `If these sources contradict something you said, correct it explicitly. ` +
+        `Cite sources by number. Do not repeat raw text.`,
     );
   }
 
