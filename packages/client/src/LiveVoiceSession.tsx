@@ -4,11 +4,9 @@ import { useEffect, useRef, useState } from "react";
 import {
   ChevronDown,
   ChevronUp,
-  Information,
   Microphone,
   Screen,
   SendAlt,
-  Settings,
   Stop,
 } from "@carbon/icons-react";
 import type { LiveConfigHttpResponse, PageContext, PageHydrationHttpResponse } from "@packages/core";
@@ -86,7 +84,6 @@ export function LiveVoiceSession({
   const managerRef = useRef<LiveSessionManager | null>(null);
   const screenCleanupRef = useRef<(() => void) | null>(null);
   const micCleanupRef = useRef<(() => void) | null>(null);
-  /** Dedicated 24 kHz context for assistant TTS — keep separate from mic capture graph. */
   const playbackAudioContextRef = useRef<AudioContext | null>(null);
   const playbackCursorRef = useRef(0);
   const lastTurnCountRef = useRef(0);
@@ -111,14 +108,7 @@ export function LiveVoiceSession({
     turnCompleteCount: 0,
     isConnected: false,
   });
-  const [transcript, setTranscript] = useState<TranscriptEntry[]>([
-    {
-      id: "intro",
-      role: "system",
-      text: "Start a screen share and voice session. Once connected, Verity should watch what you are browsing and respond in voice.",
-      meta: "ready",
-    },
-  ]);
+  const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
   const [typedInput, setTypedInput] = useState("");
   const [pageUrl, setPageUrl] = useState("");
   const [pageTitle, setPageTitle] = useState("");
@@ -156,7 +146,6 @@ export function LiveVoiceSession({
 
     lastTurnCountRef.current = snapshot.turnCompleteCount;
     const fullUserTranscript = snapshot.partialUserTranscript.trim();
-    // Extract only the new portion of the user transcript for this turn.
     const prev = prevUserTranscriptRef.current;
     const turnText = fullUserTranscript.startsWith(prev)
       ? fullUserTranscript.slice(prev.length).trim()
@@ -252,7 +241,7 @@ export function LiveVoiceSession({
           id: `session-${Date.now()}`,
           role: "system",
           text: [
-            "Live session connected. Screen frames and microphone audio are now being streamed to Gemini Live.",
+            "Session connected.",
             hydrated.message,
             ...hydrated.warnings,
           ]
@@ -332,160 +321,169 @@ export function LiveVoiceSession({
     playbackCursorRef.current = startAt + buffer.duration;
   }
 
+  const isConnected = snapshot.isConnected;
+  const isIdle = !isConnected && !starting;
+
   return (
-    <main className="h-screen overflow-hidden text-white">
-      <div className="mx-auto flex h-full max-w-7xl flex-col px-4 py-6 sm:px-6 lg:px-8">
-        <header className="border border-[var(--border)] px-6 py-5">
-          <p className="text-[10px] font-medium uppercase tracking-[0.08em] text-[var(--foreground-muted)]">
-            Verity live
-          </p>
-          <h1 className="mt-1 text-[15px] font-medium text-[var(--foreground)]">
-            Live page analysis workspace
-          </h1>
-          <p className="mt-1 max-w-3xl text-[11px] leading-5 text-[var(--foreground-muted)]">
-            Transcript first. Start the live session and keep the conversation in view.
-          </p>
-
-          <div className="mt-5 flex flex-col gap-3 border border-[var(--border)] bg-[rgba(6,17,18,0.45)] p-4">
-            <div className="flex flex-wrap gap-2">
-              <Button
-                type="button"
-                onClick={startSession}
-                disabled={starting || snapshot.isConnected}
-                tone="accent"
-              >
-                <Screen size={14} aria-hidden="true" />
-                <Microphone size={14} aria-hidden="true" />
-                {starting
-                  ? "Starting session..."
-                  : snapshot.isConnected
-                    ? "Voice session live"
-                    : "Share screen and start voice"}
-              </Button>
-              <Button
-                type="button"
-                onClick={stopSession}
-                disabled={!snapshot.isConnected}
-                tone="neutral"
-              >
-                <Stop size={14} aria-hidden="true" />
-                Stop session
-              </Button>
+    <main className="flex h-screen flex-col overflow-hidden text-[var(--foreground)]">
+      {/* ── Idle state: centered hero ── */}
+      {isIdle && transcript.length === 0 && (
+        <div className="flex flex-1 flex-col items-center justify-center gap-8 px-6">
+          {/* Verity wordmark */}
+          <div className="flex flex-col items-center gap-3">
+            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[var(--accent-muted)]">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M12 3C7.03 3 3 7.03 3 12s4.03 9 9 9 9-4.03 9-9-4.03-9-9-9zm0 16.5c-4.14 0-7.5-3.36-7.5-7.5S7.86 4.5 12 4.5s7.5 3.36 7.5 7.5-3.36 7.5-7.5 7.5z" fill="var(--accent)" opacity="0.5" />
+                <circle cx="12" cy="12" r="3" fill="var(--accent)" />
+              </svg>
             </div>
-            <div className="flex flex-wrap gap-2">
-              <StatusButton label="State" value={snapshot.state} icon={<Information size={12} aria-hidden="true" />} />
-              <StatusButton
-                label="Key"
-                value={liveConfig?.hasServerKey ? "ephemeral ready" : "missing server key"}
-                icon={<Screen size={12} aria-hidden="true" />}
-              />
-              <StatusButton
-                label="Resume"
-                value={snapshot.resumeHandle ? "available" : "none"}
-                icon={<Settings size={12} aria-hidden="true" />}
-              />
-            </div>
+            <h1 className="text-lg font-semibold tracking-tight">Verity</h1>
+            <p className="max-w-[260px] text-center text-[13px] leading-relaxed text-[var(--foreground-secondary)]">
+              Share your screen, speak naturally, and get real-time analysis of what you are browsing.
+            </p>
           </div>
-        </header>
 
-        <section className="mt-4 min-h-0 flex-1 overflow-hidden">
-          <div className="flex min-h-0 flex-col overflow-hidden border border-[var(--border)]">
-            <div className="grid grid-cols-[1fr_auto] items-end gap-3 border-b border-[var(--border)] px-4 py-3">
-              <div>
-                <p className="text-[10px] font-medium uppercase tracking-[0.06em] text-[var(--foreground-muted)]">
-                  Transcript
-                </p>
-                <p className="mt-1 text-[11px] leading-5 text-[var(--foreground-muted)]">
-                  Live turns stay in view while controls remain secondary.
-                </p>
+          {/* Primary CTA */}
+          <button
+            type="button"
+            onClick={startSession}
+            disabled={starting || !liveConfig?.hasServerKey}
+            className="group flex h-12 cursor-pointer items-center gap-3 rounded-full bg-[var(--accent)] px-6 text-[14px] font-medium text-[var(--background)] transition-all duration-200 hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <Screen size={18} aria-hidden="true" />
+            <Microphone size={18} aria-hidden="true" />
+            Start live session
+          </button>
+
+          {/* Subtle status */}
+          <div className="flex items-center gap-2 text-[12px] text-[var(--foreground-muted)]">
+            <span className={`inline-block h-1.5 w-1.5 rounded-full ${liveConfig?.hasServerKey ? "bg-[var(--success)]" : "bg-[var(--error)]"}`} />
+            {liveConfig?.hasServerKey ? "Ready to connect" : "Server key unavailable"}
+          </div>
+        </div>
+      )}
+
+      {/* ── Active / has-transcript state ── */}
+      {(!isIdle || transcript.length > 0) && (
+        <>
+          {/* Top bar */}
+          <header className="flex flex-shrink-0 items-center justify-between gap-3 border-b border-[var(--border)] px-4 py-3">
+            <div className="flex items-center gap-3">
+              <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-[var(--accent-muted)]">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <circle cx="12" cy="12" r="3" fill="var(--accent)" />
+                </svg>
               </div>
-              <div className="font-mono text-[11px] text-[var(--foreground-muted)]">
-                {transcript.length +
-                  Number(Boolean(snapshot.partialAssistantTranscript || snapshot.partialUserTranscript))}{" "}
-                entries
-              </div>
+              <span className="text-[13px] font-medium">Verity</span>
+              {isConnected && (
+                <span className="flex items-center gap-1.5 rounded-full bg-[var(--success-muted)] px-2.5 py-1 text-[11px] font-medium text-[var(--success)]">
+                  <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--success)]" />
+                  Live
+                </span>
+              )}
             </div>
-
-            <div className="min-h-0 flex-1 space-y-2 overflow-y-auto px-4 py-4">
-              {transcript.map((entry) => (
-                <TranscriptEntryView key={entry.id} entry={entry} />
-              ))}
-
-              {inlineCard ? <InlineTranscriptCard key={inlineCard.id} card={inlineCard} /> : null}
-
-              {snapshot.partialUserTranscript.trim() ? (
-                <TranscriptEntryView
-                  entry={{
-                    id: "live-user",
-                    role: "user",
-                    text: snapshot.partialUserTranscript,
-                    meta: "live mic",
-                  }}
-                />
-              ) : null}
-
-              {snapshot.partialAssistantTranscript.trim() ? (
-                <TranscriptEntryView
-                  entry={{
-                    id: "live-assistant",
-                    role: "assistant",
-                    text: snapshot.partialAssistantTranscript,
-                    meta: "live response",
-                  }}
-                />
-              ) : null}
+            <div className="flex items-center gap-2">
+              {!isConnected && (
+                <button
+                  type="button"
+                  onClick={startSession}
+                  disabled={starting}
+                  className="flex h-8 cursor-pointer items-center gap-2 rounded-full bg-[var(--accent)] px-4 text-[12px] font-medium text-[var(--background)] transition-all duration-200 hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <Screen size={14} aria-hidden="true" />
+                  {starting ? "Starting..." : "Start"}
+                </button>
+              )}
+              {isConnected && (
+                <button
+                  type="button"
+                  onClick={stopSession}
+                  className="flex h-8 cursor-pointer items-center gap-2 rounded-full border border-[var(--border-strong)] bg-transparent px-4 text-[12px] font-medium text-[var(--foreground-secondary)] transition-colors duration-200 hover:border-[var(--error)] hover:text-[var(--error)]"
+                >
+                  <Stop size={14} aria-hidden="true" />
+                  End
+                </button>
+              )}
             </div>
+          </header>
 
+          {/* Transcript */}
+          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-4">
+            {transcript.map((entry) => (
+              <TranscriptEntryView key={entry.id} entry={entry} />
+            ))}
+
+            {inlineCard ? <InlineTranscriptCard key={inlineCard.id} card={inlineCard} /> : null}
+
+            {snapshot.partialUserTranscript.trim() ? (
+              <TranscriptEntryView
+                entry={{
+                  id: "live-user",
+                  role: "user",
+                  text: snapshot.partialUserTranscript,
+                  meta: "speaking",
+                }}
+              />
+            ) : null}
+
+            {snapshot.partialAssistantTranscript.trim() ? (
+              <TranscriptEntryView
+                entry={{
+                  id: "live-assistant",
+                  role: "assistant",
+                  text: snapshot.partialAssistantTranscript,
+                  meta: "responding",
+                }}
+              />
+            ) : null}
+          </div>
+
+          {/* Compose bar */}
+          <div className="flex-shrink-0 border-t border-[var(--border)]">
             <details
-              className="border-t border-[var(--border)] px-4 py-3"
               open={composeOpen}
               onToggle={(event) => setComposeOpen(event.currentTarget.open)}
             >
-              <summary className="flex cursor-pointer items-center justify-between gap-3">
-                <div>
-                  <p className="text-[10px] font-medium uppercase tracking-[0.06em] text-[var(--foreground-muted)]">
-                    Typed message
-                  </p>
-                  <p className="mt-1 text-[11px] text-[var(--foreground-muted)]">
-                    Use only when voice is not enough.
-                  </p>
-                </div>
-                <Button type="button" tone="ghost">
-                  {composeOpen ? (
-                    <ChevronUp size={14} aria-hidden="true" />
-                  ) : (
-                    <ChevronDown size={14} aria-hidden="true" />
-                  )}
-                  {composeOpen ? "Hide" : "Show"}
-                </Button>
+              <summary className="flex cursor-pointer items-center justify-between gap-3 px-4 py-2.5">
+                <span className="text-[12px] text-[var(--foreground-muted)]">Type a message</span>
+                {composeOpen ? (
+                  <ChevronDown size={14} className="text-[var(--foreground-muted)]" aria-hidden="true" />
+                ) : (
+                  <ChevronUp size={14} className="text-[var(--foreground-muted)]" aria-hidden="true" />
+                )}
               </summary>
-              <div className="mt-3 border border-[var(--border)] bg-[rgba(6,17,18,0.35)] p-3">
-                <textarea
-                  value={typedInput}
-                  onChange={(event) => setTypedInput(event.target.value)}
-                  placeholder="Optional typed message while the voice session is live"
-                  className="min-h-24 w-full resize-none border-0 bg-transparent text-[12px] leading-6 text-[var(--foreground)] outline-none placeholder:text-[var(--foreground-muted)]"
-                />
-                <div className="mt-3 flex items-center justify-between gap-3 border-t border-[var(--border)] pt-3">
-                  <span className="text-[11px] text-[var(--foreground-muted)]">Typed input is optional.</span>
-                  <Button
+              <div className="px-4 pb-4">
+                <div className="flex items-end gap-2 rounded-xl border border-[var(--border)] bg-[var(--background-elevated)] p-2">
+                  <textarea
+                    value={typedInput}
+                    onChange={(event) => setTypedInput(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" && !event.shiftKey) {
+                        event.preventDefault();
+                        sendTypedMessage();
+                      }
+                    }}
+                    placeholder="Type here while the session is live..."
+                    rows={2}
+                    className="min-h-0 flex-1 resize-none border-0 bg-transparent text-[13px] leading-relaxed text-[var(--foreground)] outline-none placeholder:text-[var(--foreground-muted)]"
+                  />
+                  <button
                     type="button"
                     onClick={sendTypedMessage}
                     disabled={!snapshot.isConnected || !typedInput.trim()}
-                    tone="accent-soft"
+                    className="flex h-8 w-8 flex-shrink-0 cursor-pointer items-center justify-center rounded-lg bg-[var(--accent)] text-[var(--background)] transition-all duration-200 hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-30"
                   >
                     <SendAlt size={14} aria-hidden="true" />
-                    Send
-                  </Button>
+                  </button>
                 </div>
+                {snapshot.lastError ? (
+                  <p className="mt-2 text-[12px] text-[var(--error)]">{snapshot.lastError}</p>
+                ) : null}
               </div>
-              {snapshot.lastError ? (
-                <p className="mt-3 text-[11px] text-[#d29c9c]">{snapshot.lastError}</p>
-              ) : null}
             </details>
           </div>
-        </section>
-      </div>
+        </>
+      )}
     </main>
   );
 }
@@ -507,79 +505,39 @@ function formatStartSessionError(error: unknown) {
 }
 
 function TranscriptEntryView({ entry }: { entry: TranscriptEntry }) {
-  const [isOpen, setIsOpen] = useState(entry.role !== "system");
-  const tone =
-    entry.role === "user"
-      ? "mr-auto border-[#2d3f56] bg-[#182435] text-[#d9e3f2]"
-      : entry.role === "assistant"
-        ? "ml-auto border-[#33594e] bg-[#123329] text-[#e5f1ea]"
-        : "mr-auto border-[#4e4a35] bg-[#262112] text-[#f4edd4]";
+  const isSystem = entry.role === "system";
+  const isUser = entry.role === "user";
 
-  const width = entry.role === "system" ? "max-w-xl" : "max-w-3xl";
+  const bubbleClass = isSystem
+    ? "bg-[var(--background-surface)] text-[var(--foreground-secondary)] border border-[var(--border)]"
+    : isUser
+      ? "bg-[var(--user-bg)] text-[var(--user-text)] border border-[var(--user-border)]"
+      : "bg-[var(--assistant-bg)] text-[var(--assistant-text)] border border-[var(--assistant-border)]";
+
+  const alignment = isUser ? "ml-auto" : "mr-auto";
 
   return (
-    <article className={`${width} border px-4 py-3 ${tone}`}>
-      <div className="flex items-center justify-between gap-3">
-        <span className="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-[0.06em] opacity-80">
-          <TranscriptRoleIcon role={entry.role} />
-          {entry.role}
+    <article className={`max-w-[88%] rounded-2xl px-4 py-3 ${bubbleClass} ${alignment}`}>
+      <div className="flex items-center gap-2">
+        <span className="text-[11px] font-medium capitalize opacity-70">
+          {entry.role === "assistant" ? "verity" : entry.role}
         </span>
-        <div className="flex items-center gap-3">
-          {entry.meta ? <span className="font-mono text-[11px] opacity-70">{entry.meta}</span> : null}
-          {entry.role === "system" ? (
-            <button
-              type="button"
-              onClick={() => setIsOpen((current) => !current)}
-              className="inline-flex items-center gap-1 text-[10px] font-medium uppercase tracking-[0.06em] opacity-80"
-              aria-expanded={isOpen}
-            >
-              {isOpen ? <ChevronUp size={12} aria-hidden="true" /> : <ChevronDown size={12} aria-hidden="true" />}
-              {isOpen ? "Hide" : "Show"}
-            </button>
-          ) : null}
-        </div>
+        {entry.meta ? (
+          <span className="text-[10px] opacity-50">{entry.meta}</span>
+        ) : null}
       </div>
-      {entry.role !== "system" || isOpen ? (
-        <p className="mt-2 whitespace-pre-wrap text-[12px] leading-6">{entry.text}</p>
-      ) : null}
+      <p className="mt-1.5 whitespace-pre-wrap text-[13px] leading-relaxed">{entry.text}</p>
     </article>
   );
 }
 
 function InlineTranscriptCard({ card }: { card: LiveInlineCard }) {
-  const tone =
+  const toneStyles =
     card.tone === "success"
-      ? {
-          border: "border-[#33594e]",
-          bg: "bg-[linear-gradient(180deg,rgba(12,38,32,0.96),rgba(9,25,22,0.98))]",
-          label: "text-[#8db7a6]",
-          title: "text-[#e5f1ea]",
-          body: "text-[#abc5ba]",
-          track: "bg-[#163028]",
-          fill: "bg-[#5e8f7d]",
-          item: "border-[#26453c] bg-[rgba(15,42,35,0.7)] text-[#c7dcd4]",
-        }
+      ? { accent: "var(--success)", accentMuted: "var(--success-muted)", text: "var(--success)" }
       : card.tone === "error"
-        ? {
-            border: "border-[#6f4740]",
-            bg: "bg-[linear-gradient(180deg,rgba(40,20,18,0.96),rgba(27,12,11,0.98))]",
-            label: "text-[#c8958c]",
-            title: "text-[#f0d8d2]",
-            body: "text-[#d7afa8]",
-            track: "bg-[#311816]",
-            fill: "bg-[#a8675c]",
-            item: "border-[#5d3934] bg-[rgba(45,21,19,0.7)] text-[#ebcec8]",
-          }
-        : {
-            border: "border-[#4a5640]",
-            bg: "bg-[linear-gradient(180deg,rgba(31,33,17,0.96),rgba(18,20,10,0.98))]",
-            label: "text-[#b7b18b]",
-            title: "text-[#f1eedf]",
-            body: "text-[#c9c19f]",
-            track: "bg-[#282613]",
-            fill: "bg-[#b0a36a]",
-            item: "border-[#59532d] bg-[rgba(33,31,15,0.72)] text-[#ece3b8]",
-          };
+        ? { accent: "var(--error)", accentMuted: "var(--error-muted)", text: "var(--error)" }
+        : { accent: "var(--accent)", accentMuted: "var(--accent-muted)", text: "var(--accent-text)" };
 
   const progress =
     card.totalPages && card.totalPages > 0
@@ -588,49 +546,54 @@ function InlineTranscriptCard({ card }: { card: LiveInlineCard }) {
 
   return (
     <article
-      className={`mr-auto max-w-3xl border px-4 py-4 shadow-[0_12px_32px_rgba(0,0,0,0.22)] ${tone.border} ${tone.bg}`}
+      className="mr-auto max-w-[88%] overflow-hidden rounded-2xl border border-[var(--border)]"
+      style={{ background: `linear-gradient(135deg, ${toneStyles.accentMuted}, var(--background-surface))` }}
     >
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0 flex-1">
-          <p className={`font-mono text-[10px] uppercase tracking-[0.14em] ${tone.label}`}>{card.label}</p>
-          <h3 className={`mt-1 text-[13px] font-medium ${tone.title}`}>{card.title}</h3>
-          <p className={`mt-1 text-[11px] leading-5 ${tone.body}`}>{card.status}</p>
+      <div className="px-4 py-3">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.08em]" style={{ color: toneStyles.text }}>
+              {card.label}
+            </p>
+            <p className="mt-1 text-[13px] font-medium text-[var(--foreground)]">{card.title}</p>
+            <p className="mt-1 text-[12px] leading-relaxed text-[var(--foreground-secondary)]">{card.status}</p>
+          </div>
+          {card.metrics?.length ? (
+            <div className="flex flex-wrap justify-end gap-1.5">
+              {card.metrics.map((metric) => (
+                <span
+                  key={metric.label}
+                  className="inline-flex items-center rounded-full border border-[var(--border)] bg-[var(--background)] px-2 py-0.5 text-[10px] text-[var(--foreground-secondary)]"
+                >
+                  {metric.label}: {metric.value}
+                </span>
+              ))}
+            </div>
+          ) : null}
         </div>
-        {card.metrics?.length ? (
-          <div className="flex flex-wrap justify-end gap-2">
-            {card.metrics.map((metric) => (
-              <span
-                key={metric.label}
-                className={`inline-flex h-8 items-center border px-2.5 font-mono text-[10px] ${tone.item}`}
-              >
-                {metric.label}: {metric.value}
-              </span>
-            ))}
+
+        {card.query ? (
+          <div className="mt-3 rounded-lg bg-[var(--background)] px-3 py-2">
+            <p className="text-[12px] leading-relaxed text-[var(--foreground-secondary)]">{card.query}</p>
           </div>
         ) : null}
       </div>
 
-      {card.query ? (
-        <div className={`mt-3 border px-3 py-2 ${tone.item}`}>
-          <p className="font-mono text-[10px] uppercase tracking-[0.12em] opacity-70">Prompt</p>
-          <p className="mt-1 text-[12px] leading-6">{card.query}</p>
-        </div>
-      ) : null}
-
       {progress !== null ? (
-        <div className="mt-3">
-          <div className={`h-1.5 overflow-hidden ${tone.track}`}>
-            <div className={`h-full transition-all duration-300 ${tone.fill}`} style={{ width: `${progress}%` }} />
-          </div>
+        <div className="h-1 bg-[var(--background)]">
+          <div
+            className="h-full transition-all duration-300"
+            style={{ width: `${progress}%`, background: toneStyles.accent }}
+          />
         </div>
       ) : null}
 
       {card.items?.length ? (
-        <div className="mt-3 flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-1.5 border-t border-[var(--border)] px-4 py-2.5">
           {card.items.map((item, index) => (
             <span
               key={`${card.id}-${index}-${item}`}
-              className={`inline-flex items-center border px-2.5 py-1.5 text-[11px] ${tone.item}`}
+              className="inline-flex items-center rounded-full bg-[var(--background)] px-2.5 py-1 text-[11px] text-[var(--foreground-secondary)]"
             >
               {item}
             </span>
@@ -722,75 +685,4 @@ function tryGetHostname(url: string) {
   } catch {
     return INITIAL_PAGE.siteName;
   }
-}
-
-type ButtonTone = "accent" | "accent-soft" | "neutral" | "ghost";
-
-function Button({
-  tone,
-  className = "",
-  children,
-  ...props
-}: React.ButtonHTMLAttributes<HTMLButtonElement> & {
-  tone: ButtonTone;
-}) {
-  return (
-    <button
-      {...props}
-      className={`${buttonClassName(tone)} ${className}`.trim()}
-    >
-      {children}
-    </button>
-  );
-}
-
-function StatusButton({
-  label,
-  value,
-  icon,
-}: {
-  label: string;
-  value: string;
-  icon: React.ReactNode;
-}) {
-  return (
-    <Button type="button" tone="ghost" className="cursor-default">
-      <span className="text-[var(--foreground-muted)]">{icon}</span>
-      <span className="text-[10px] font-medium uppercase tracking-[0.06em] text-[var(--foreground-muted)]">
-        {label}
-      </span>
-      <span className="font-mono text-[11px] text-[var(--foreground)]">{value}</span>
-    </Button>
-  );
-}
-
-function buttonClassName(tone: ButtonTone) {
-  const base =
-    "inline-flex h-9 items-center justify-center gap-2 rounded-[1px] border px-3 text-[11px] font-normal tracking-[0.01em] transition-colors disabled:cursor-not-allowed disabled:opacity-45";
-
-  if (tone === "accent") {
-    return `${base} border-[var(--border-strong)] bg-[rgba(65,96,93,0.16)] text-[var(--foreground)] hover:border-[var(--accent)]`;
-  }
-
-  if (tone === "accent-soft") {
-    return `${base} border-[var(--border)] bg-[rgba(8,28,29,0.55)] text-[var(--foreground)] hover:border-[var(--border-strong)]`;
-  }
-
-  if (tone === "ghost") {
-    return `${base} border-[var(--border)] bg-[rgba(8,28,29,0.55)] text-[var(--foreground)] hover:border-[var(--border-strong)]`;
-  }
-
-  return `${base} border-[var(--border)] bg-[rgba(8,28,29,0.55)] text-[var(--foreground)] hover:border-[var(--border-strong)]`;
-}
-
-function TranscriptRoleIcon({ role }: { role: TranscriptEntry["role"] }) {
-  if (role === "user") {
-    return <Microphone size={12} aria-hidden="true" />;
-  }
-
-  if (role === "assistant") {
-    return <Information size={12} aria-hidden="true" />;
-  }
-
-  return <Settings size={12} aria-hidden="true" />;
 }
