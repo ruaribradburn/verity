@@ -232,9 +232,11 @@ export function createLiveSessionManager(options: ManagerOptions): LiveSessionMa
           },
           contextWindowCompression: {
             slidingWindow: {
-              targetTokens: String(liveDefaults.contextWindowCompression.targetTokens),
+              // @ts-expect-error SDK types declare string but the Live API requires numeric values.
+              targetTokens: liveDefaults.contextWindowCompression.targetTokens,
             },
-            triggerTokens: String(liveDefaults.contextWindowCompression.triggerTokens),
+            // @ts-expect-error SDK types declare string but the Live API requires numeric values.
+            triggerTokens: liveDefaults.contextWindowCompression.triggerTokens,
           },
           sessionResumption: resumeHandle ? { handle: resumeHandle } : undefined,
         },
