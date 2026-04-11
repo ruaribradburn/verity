@@ -32,6 +32,14 @@ export default function App() {
   const [voiceResearch, setVoiceResearch] = useState<VoiceResearchStatus>({ phase: "idle" });
   const voiceResearchRef = useRef(voiceResearch);
   voiceResearchRef.current = voiceResearch;
+  const autoTriggerTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Clean up auto-trigger timer on unmount
+  useEffect(() => {
+    return () => {
+      if (autoTriggerTimerRef.current) clearTimeout(autoTriggerTimerRef.current);
+    };
+  }, []);
   /** Capture what Gemini said in its immediate (grounding-only) response for cross-referencing. */
   const immediateResponseRef = useRef("");
   const pendingToolCallRef = useRef<{ id: string; name: string } | null>(null);
@@ -228,8 +236,47 @@ export default function App() {
     }
   }
 
+  const handleUserTurnComplete = useCallback((text: string) => {
+    // Don't auto-trigger if research is already running (from tool call or previous auto-trigger)
+    if (voiceResearchRef.current.phase === "researching") return;
+    // Don't trigger for short utterances
+    if (text.length < 20) return;
+    // Only auto-trigger for analytical queries
+    if (!isAnalyticalQuery(text)) return;
+
+    // Give Gemini 3 seconds to call a tool itself. If it doesn't, auto-trigger.
+    if (autoTriggerTimerRef.current) clearTimeout(autoTriggerTimerRef.current);
+    autoTriggerTimerRef.current = setTimeout(() => {
+      // Check again — Gemini might have called a tool in the meantime
+      if (voiceResearchRef.current.phase !== "idle") return;
+
+      console.log("[verity/ext] Auto-triggering research (Gemini did not call tools):", text.slice(0, 80));
+
+      setVoiceResearch({
+        phase: "researching",
+        query: text,
+        pagesRead: 0,
+        totalPages: 0,
+        status: "Auto-triggered deep research...",
+        recentSources: [],
+      });
+
+      chrome.runtime.sendMessage({
+        type: "research:start",
+        source: "query",
+        query: text,
+      });
+    }, 3000);
+  }, []);
+
   const handleToolCall = useCallback(
     (call: { id: string; name: string; args: Record<string, unknown> }, manager: LiveSessionManager) => {
+      // Cancel auto-trigger timer since Gemini called a tool explicitly
+      if (autoTriggerTimerRef.current) {
+        clearTimeout(autoTriggerTimerRef.current);
+        autoTriggerTimerRef.current = null;
+      }
+
       // Don't stack concurrent research
       if (voiceResearchRef.current.phase === "researching") {
         manager.sendToolResponse(call.id, call.name, {
@@ -297,12 +344,35 @@ export default function App() {
         initialPageUrl={tabHint?.url}
         initialPageTitle={tabHint?.title}
         prepareLiveMediaCapture={ensureLiveSessionMediaPolicy}
+        onUserTurnComplete={handleUserTurnComplete}
         onToolCall={handleToolCall}
         onManagerReady={handleManagerReady}
         inlineCard={researchInlineCard}
       />
     </div>
   );
+}
+
+/** Detect if a user utterance is analytical and should trigger research. */
+function isAnalyticalQuery(text: string): boolean {
+  const lower = text.toLowerCase();
+  // Analytical intent signals
+  const analyticalTerms = [
+    "analyze", "analyse", "analysis",
+    "what do you think", "is this true", "is that true", "is this accurate",
+    "fact check", "fact-check", "verify", "check this",
+    "what's missing", "what am i missing", "missing context",
+    "bias", "biased", "framing", "misleading",
+    "evidence", "source", "credib", "reliab",
+    "opposing view", "other side", "counterargument", "counter-argument",
+    "research", "investigate", "look into", "dig into",
+    "what does the data say", "what do experts say",
+    "is this real", "debunk", "claim",
+    "article", "news", "report says", "according to",
+    "who is", "what is the background", "tell me about",
+    "compare", "contrast", "different perspective",
+  ];
+  return analyticalTerms.some((term) => lower.includes(term));
 }
 
 function buildResearchInlineCard(status: VoiceResearchStatus): LiveInlineCard | null {
