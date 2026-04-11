@@ -8,7 +8,7 @@
 
 ## 1.1 Vision
 
-Build an AI-powered real-time intelligence layer that augments user browsing by identifying bias, detecting misinformation, surfacing missing context, and constructing a dynamic knowledge graph of entities and narratives.
+Build an AI-powered real-time intelligence layer that augments user browsing by **surfacing how content is framed**, **mapping what is contested vs. better-supported**, surfacing missing context, and constructing a dynamic knowledge graph of entities and narratives—without presenting a single authoritative “correct” verdict on behalf of the user.
 
 ## 1.2 Mission
 
@@ -31,6 +31,19 @@ Verity is a **multi-agent system**: specialized agents run in parallel, exchange
 * **Coordination**: Clear handoffs (claims → verification → graph update → synthesis) so agents do not duplicate work or contradict each other.
 * **Speed**: Parallel execution where tasks are independent; sequential steps only where dependencies require them.
 * **Quality**: Disagreement and low-confidence paths are surfaced to dedicated agents (e.g. research / fact-check) before final output.
+
+## 1.5 Epistemic stance & depolarized synthesis
+
+The product **does not** optimize for telling the user “this is correct” or mirroring a polarized source’s framing as if it were neutral truth.
+
+**Principles**
+
+* **Depolarized read**: Where the source is emotionally loaded, partisan, or one-sided, synthesis aims for a **calmer, less inflammatory restatement** of what is being claimed—without endorsing it—and highlights **alternative framings** or stakeholder perspectives when evidence allows.
+* **Evidence-weighted possibilities**: Prefer language of **support, uncertainty, and conflict** (e.g. what multiple reputable sources agree on, what is disputed, what cannot be verified) rather than binary true/false pronouncements.
+* **No false certainty**: Confidence and limitations are **explicit**; the system presents **ranges of plausible readings** when the record is mixed, and flags when its own models or data are weak.
+* **User agency**: The goal is **better judgment**, not delegated belief—the user remains responsible for conclusions; Verity supplies structure, context, and traceability.
+
+This stance applies to **copy, synthesis prompts, and UI defaults** (tone, hedging, citation-first explanations).
 
 ---
 
@@ -55,10 +68,10 @@ A real-time assistant implemented as a **fleet of cooperating agents** that:
 * Extracts entities and builds a knowledge graph (dedicated extraction + graph agents)
 * Analyzes bias and credibility (analysis agents with shared schemas for claims and scores)
 * Runs **parallel verification and research agents** that share intermediate results (e.g. disputed claims, sources) via the orchestrator or a shared working memory
-* **Synthesizes** a unified response through an output agent that respects traceability back to each agent’s contribution
+* **Synthesizes** a **depolarized, evidence-aware briefing** through an output agent that respects traceability back to each agent’s contribution—emphasizing what is **better supported**, what is **contested**, and what remains **unknown**, not a single “official truth.”
 * Presents structured insights via a conversational interface
 
-**User-visible outcome**: one coherent answer with clear sections (summary, checks, entities, gaps, recommendations), produced quickly because work is split and pipelined across agents.
+**User-visible outcome**: one coherent briefing with clear sections (see §5.3), produced quickly because work is split and pipelined across agents. Tone and structure default to **non-polarizing** and **epistemically humble** copy (see §1.5).
 
 ---
 
@@ -102,24 +115,25 @@ A real-time assistant implemented as a **fleet of cooperating agents** that:
 
 ## 4.4 Bias Detection System
 
-* Detects:
+* Surfaces **signals** of (not verdicts on):
 
-  * Political bias
+  * Political or ideological lean in framing
   * Emotional language
   * Framing techniques
 * Models used:
 
   * Sentiment analysis
   * Framing classifiers
+* **Product use**: findings inform a **depolarized recap** and “what another neutral summary might emphasize”—not a label that the user should dismiss the source outright unless policy explicitly requires it.
 
 ## 4.5 Credibility Scoring
 
-* Evaluates:
+* Evaluates **heuristics** such as:
 
   * Source reputation
   * Historical reliability
   * Citation quality
-* Outputs confidence score
+* Outputs **confidence-style scores with caveats** (data freshness, domain, known blind spots)—presented as **supporting evidence for triage**, not as “this source is true/false.”
 
 ## 4.6 Multi-Agent Orchestration & Inter-Agent Communication
 
@@ -142,8 +156,8 @@ A real-time assistant implemented as a **fleet of cooperating agents** that:
 
   * Cross-source verification
   * Opposing viewpoint retrieval
-  * Fact checking
-* **Interoperability**: research agents accept **structured claim lists** from analysis agents and return **citable findings** for the output/synthesis agent.
+  * Checking claims against **multiple independent sources** where possible
+* **Interoperability**: research agents accept **structured claim lists** from analysis agents and return **citable findings** (including **contradictions** and **gaps**) for the output/synthesis agent—so synthesis can state **what is better supported** without claiming final truth.
 
 ## 4.8 Gap Detection
 
@@ -185,18 +199,22 @@ A real-time assistant implemented as a **fleet of cooperating agents** that:
 
 ## 5.3 Output Format
 
-1. Summary
-2. Bias Check
-3. Credibility
-4. Key Entities
-5. Missing Context
-6. Recommendations
+Sections should read as an **analytical briefing**, not a verdict. Default copy avoids “this is correct / this is false” unless operating under a narrow, policy-defined fact-checking mode; prefer **what is contested**, **what sources support**, and **confidence limits**.
+
+1. **Summary (depolarized)**: Neutral restatement of the main claims and stakes; notes loaded or one-sided language without amplifying it.
+2. **Framing & bias signals**: How the piece leans (emotion, omission, partisan cues)—as signals, with **alternative ways to describe the same issue** where useful.
+3. **Evidence & credibility (heuristic)**: Source quality cues and **what can/cannot be verified** from available evidence—not a single trust score as gospel.
+4. **Key entities & relationships**: Entities and how they connect (graph-backed where available).
+5. **Missing context & opposing lines**: Gaps, missing stakeholders, and **good-faith counterarguments** or mainstream counter-narratives when relevant.
+6. **What you might read next**: Suggestions for verification and perspective (primary sources, diverse outlets)—**recommendations**, not commands.
+
+Voice and UI microcopy should reinforce §1.5 (no false certainty; user retains judgment).
 
 ## 5.4 Multi-Agent User Experience
 
 * Users receive **one** primary response assembled by the synthesis agent (not a separate chat per agent).
 * **Speed**: where helpful, show a short initial summary or loading state while verification agents finish, without blocking the entire UI on the slowest agent unless the claim is high-impact.
-* **Trust**: later phases may expose “why this section” or per-agent contributions without overwhelming the default view.
+* **Trust**: later phases may expose “why this section” or per-agent contributions without overwhelming the default view; explanations should emphasize **evidence and limits**, not authority.
 
 ---
 
@@ -210,7 +228,7 @@ A real-time assistant implemented as a **fleet of cooperating agents** that:
 4. **Multi-Agent Orchestrator** (routing, parallelism, merge, escalation)
 5. Analysis **agents** (bias, framing, credibility)
 6. Research / verification **agents** (parallel where possible)
-7. **Synthesis / output agent** (single user-facing narrative from structured agent outputs)
+7. **Synthesis / output agent** (single user-facing **briefing**: depolarized tone, uncertainty-aware, traceable to agents and sources—not a definitive “answer key”)
 8. Frontend Interface
 
 ## 6.2 Data Flow
@@ -220,8 +238,8 @@ A real-time assistant implemented as a **fleet of cooperating agents** that:
 3. Graph agent updates knowledge graph; scores propagate to shared context.
 4. Bias + credibility **analysis agents** write structured results; orchestrator detects conflicts or low confidence.
 5. Research agents run **in parallel** on independent claim bundles; results merged with source pointers.
-6. **Synthesis agent** produces one response from the shared representation (traceable to each upstream agent).
-7. User sees formatted output; optional voice layer reads the same structured result.
+6. **Synthesis agent** produces one briefing from the shared representation (traceable to each upstream agent), applying **depolarized phrasing** and **explicit uncertainty** per §1.5.
+7. User sees formatted output; optional voice layer reads the same structured result (same epistemic stance).
 
 ## 6.3 Multi-Agent Roles (illustrative)
 
@@ -232,9 +250,9 @@ A real-time assistant implemented as a **fleet of cooperating agents** that:
 | Graph | Nodes, edges, confidence | Scoring, synthesis |
 | Bias / credibility | Scores, rationale snippets | Orchestrator, research, synthesis |
 | Research | Evidence, corroboration, opposing views | Orchestrator, synthesis |
-| Synthesis | Final answer, sectioning, citations | User (and voice layer) |
+| Synthesis | Depolarized briefing, sectioning, citations, uncertainty | User (and voice layer) |
 
-Agents **do not** each emit a separate chat stream to the user by default; the product presents **one** merged result, with optional drill-down into per-agent rationale in later phases.
+Agents **do not** each emit a separate chat stream to the user by default; the product presents **one** merged result, with optional drill-down into per-agent rationale in later phases. The merged result is **not** positioned as infallible truth; it is a **structured, sourced, humility-first** synthesis.
 
 ---
 
@@ -264,7 +282,7 @@ Agents **do not** each emit a separate chat stream to the user by default; the p
 * Entity extraction
 * Basic bias detection
 * Simple credibility scoring
-* Conversational output
+* Conversational output with **depolarized, uncertainty-aware** default tone (§1.5, §5.3)
 * **At least two specialized agents plus orchestration** (e.g. extraction/analysis → synthesis), with a defined shared schema for passing results—even if research agents are minimal stubs initially
 
 ## 8.2 Should Have
@@ -299,12 +317,14 @@ Agents **do not** each emit a separate chat stream to the user by default; the p
 * Data source reliability
 * Performance overhead in real-time analysis
 * **Multi-agent inconsistency**: without a strong shared schema and merge rules, agents may produce conflicting scores or duplicate verification; orchestrator and synthesis must resolve or surface uncertainty explicitly
+* **False certainty / polarizing tone**: models may overstate confidence or echo partisan framing; **copy standards, synthesis prompts, and evals** must enforce §1.5 (depolarized, evidence-weighted, no “this is correct” by default)
 
 ---
 
 # 11. Metrics of Success
 
-* Accuracy of bias detection
+* Quality of bias/framing signals (useful for users without being preachy or falsely objective)
+* Calibration: user-facing uncertainty matches actual evidence strength where measurable
 * **End-to-end latency** (ingest → final synthesized output) and **time-to-first-token** (if streaming)
 * **Orchestration quality**: rate of unnecessary escalations, agent timeout rate, merge conflicts caught before user sees output
 * User engagement time
