@@ -1,17 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import {
-  ChevronDown,
-  ChevronUp,
-  Information,
-  Microphone,
-  Screen,
-  SendAlt,
-  Settings,
-  Stop,
-} from "@carbon/icons-react";
-import type { LiveConfigHttpResponse, PageContext } from "@/core";
+import type { LiveConfigHttpResponse, PageContext } from "@packages/core";
 import {
   createLiveSessionManager,
   type LiveSessionManager,
@@ -35,7 +25,7 @@ const INITIAL_PAGE: PageContext = {
   publishedAt: null,
   selectionText: null,
   contentText:
-    "Screen sharing is active. Verity should reason about the user’s current browsing context from live frames and voice interaction.",
+    "Screen sharing is active. Verity should reason about the user's current browsing context from live frames and voice interaction.",
 };
 
 export default function Home() {
@@ -69,9 +59,6 @@ export default function Home() {
   const [pageUrl, setPageUrl] = useState("");
   const [pageTitle, setPageTitle] = useState("");
   const [starting, setStarting] = useState(false);
-  const [detailsOpen, setDetailsOpen] = useState(false);
-  const [composeOpen, setComposeOpen] = useState(false);
-  const [setupOpen, setSetupOpen] = useState(true);
 
   useEffect(() => {
     void fetch(`${API_ORIGIN}/live/config`)
@@ -281,76 +268,57 @@ export default function Home() {
   }
 
   return (
-    <main className="min-h-screen text-white">
-      <div className="mx-auto flex min-h-screen max-w-7xl flex-col px-4 py-6 sm:px-6 lg:px-8">
-        <header className="border border-[var(--border)] px-6 py-5">
-          <p className="text-[10px] font-medium uppercase tracking-[0.08em] text-[var(--foreground-muted)]">
-            Verity live
-          </p>
-          <h1 className="mt-1 text-[15px] font-medium text-[var(--foreground)]">
-            Live page analysis workspace
-          </h1>
-          <p className="mt-1 max-w-3xl text-[11px] leading-5 text-[var(--foreground-muted)]">
-            Transcript first. Setup and transport details stay collapsed until needed.
-          </p>
-
-          <div className="mt-5 flex flex-wrap items-center gap-3 border border-[var(--border)] px-4 py-3">
-            <button
-              type="button"
-              onClick={startSession}
-              disabled={starting || snapshot.isConnected}
-              className={buttonClassName("selected")}
-            >
-              <Screen size={14} aria-hidden="true" />
-              <Microphone size={14} aria-hidden="true" />
-              {starting
-                ? "Starting session..."
-                : snapshot.isConnected
-                  ? "Voice session live"
-                  : "Share screen and start voice"}
-            </button>
-            <button
-              type="button"
-              onClick={stopSession}
-              disabled={!snapshot.isConnected}
-              className={buttonClassName("default")}
-            >
-              <Stop size={14} aria-hidden="true" />
-              Stop session
-            </button>
-            <div className="flex flex-wrap items-center gap-2">
-              <ControlPill label="State" value={snapshot.state} />
-              <ControlPill
-                label="Key"
-                value={liveConfig?.hasServerKey ? "ephemeral ready" : "missing server key"}
-              />
-              <ControlPill
-                label="Resume"
-                value={snapshot.resumeHandle ? "available" : "none"}
-              />
+    <main className="min-h-screen bg-[#f4efe6] text-stone-900">
+      <div className="mx-auto flex min-h-screen max-w-5xl flex-col px-4 py-6 sm:px-6">
+        <header className="rounded-[2rem] border border-black/8 bg-white px-6 py-6 shadow-[0_18px_60px_rgba(0,0,0,0.06)]">
+          <div className="flex flex-col gap-5 md:flex-row md:items-end md:justify-between">
+            <div className="space-y-3">
+              <p className="text-xs uppercase tracking-[0.34em] text-amber-700">Verity live</p>
+              <h1 className="text-4xl font-semibold tracking-[-0.05em]">Talk to the page you are viewing</h1>
+              <p className="max-w-2xl text-sm leading-6 text-stone-600">
+                Start one live Gemini session, share your screen, and let Verity reason about what
+                it is seeing while you speak.
+              </p>
             </div>
+
+            <div className="flex flex-col gap-3 sm:flex-row">
+              <button
+                type="button"
+                onClick={startSession}
+                disabled={starting || snapshot.isConnected}
+                className="rounded-full bg-stone-950 px-5 py-3 text-sm font-medium text-stone-50 transition hover:bg-amber-700 disabled:cursor-wait disabled:opacity-70"
+              >
+                {starting
+                  ? "Starting session..."
+                  : snapshot.isConnected
+                    ? "Voice session live"
+                    : "Share screen and start voice"}
+              </button>
+              <button
+                type="button"
+                onClick={stopSession}
+                disabled={!snapshot.isConnected}
+                className="rounded-full border border-stone-300 bg-white px-5 py-3 text-sm font-medium text-stone-700 transition hover:border-stone-900 hover:text-stone-900 disabled:opacity-40"
+              >
+                Stop session
+              </button>
+            </div>
+          </div>
+
+          <div className="mt-5 flex flex-wrap gap-2 text-xs text-stone-600">
+            <Pill label={`state: ${snapshot.state}`} />
+            <Pill label={liveConfig?.hasServerKey ? "ephemeral token ready" : "missing Gemini server key"} />
+            <Pill label={snapshot.resumeHandle ? "session resumable" : "no resume handle yet"} />
           </div>
         </header>
 
-        <section className="mt-4 grid flex-1 gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
-          <div className="flex min-h-[72vh] flex-col border border-[var(--border)]">
-            <div className="grid grid-cols-[1fr_auto] items-end gap-3 border-b border-[var(--border)] px-4 py-3">
-              <div>
-                <p className="text-[10px] font-medium uppercase tracking-[0.06em] text-[var(--foreground-muted)]">
-                  Transcript
-                </p>
-                <p className="mt-1 text-[11px] leading-5 text-[var(--foreground-muted)]">
-                  Live turns stay in view while controls remain secondary.
-                </p>
-              </div>
-              <div className="font-mono text-[11px] text-[var(--foreground-muted)]">
-                {transcript.length +
-                  Number(Boolean(snapshot.partialAssistantTranscript || snapshot.partialUserTranscript))}{" "}
-                entries
-              </div>
+        <section className="mt-4 grid flex-1 gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
+          <div className="flex min-h-[70vh] flex-col rounded-[2rem] border border-black/8 bg-white shadow-[0_18px_60px_rgba(0,0,0,0.06)]">
+            <div className="border-b border-stone-200 px-5 py-4">
+              <p className="text-xs uppercase tracking-[0.28em] text-amber-700">Transcript</p>
             </div>
 
-            <div className="flex-1 space-y-2 overflow-y-auto px-4 py-4">
+            <div className="flex-1 space-y-4 overflow-y-auto px-4 py-5 sm:px-5">
               {transcript.map((entry) => (
                 <TranscriptEntryView key={entry.id} entry={entry} />
               ))}
@@ -378,138 +346,69 @@ export default function Home() {
               ) : null}
             </div>
 
-            <details
-              className="border-t border-[var(--border)] px-4 py-3"
-              open={composeOpen}
-              onToggle={(event) => setComposeOpen(event.currentTarget.open)}
-            >
-              <summary className="flex cursor-pointer items-center justify-between gap-3">
-                <div>
-                  <p className="text-[10px] font-medium uppercase tracking-[0.06em] text-[var(--foreground-muted)]">
-                    Typed message
-                  </p>
-                  <p className="mt-1 text-[11px] text-[var(--foreground-muted)]">
-                    Use only when voice is not enough.
-                  </p>
-                </div>
-                <button type="button" className={buttonClassName("default", true)}>
-                  {composeOpen ? (
-                    <ChevronUp size={14} aria-hidden="true" />
-                  ) : (
-                    <ChevronDown size={14} aria-hidden="true" />
-                  )}
-                  {composeOpen ? "Hide" : "Show"}
-                </button>
-              </summary>
-              <div className="mt-3 border border-[var(--border)] p-3">
+            <div className="border-t border-stone-200 px-4 py-4 sm:px-5">
+              <div className="rounded-[1.5rem] border border-stone-200 bg-[#fbf9f4] p-3">
                 <textarea
                   value={typedInput}
                   onChange={(event) => setTypedInput(event.target.value)}
                   placeholder="Optional typed message while the voice session is live"
-                  className="min-h-24 w-full resize-none border-0 bg-transparent text-[12px] leading-6 text-[var(--foreground)] outline-none placeholder:text-[var(--foreground-muted)]"
+                  className="min-h-24 w-full resize-none border-0 bg-transparent text-sm leading-6 text-stone-900 outline-none placeholder:text-stone-400"
                 />
-                <div className="mt-3 flex items-center justify-between gap-3 border-t border-[var(--border)] pt-3">
-                  <span className="text-[11px] text-[var(--foreground-muted)]">Typed input is optional.</span>
+                <div className="mt-3 flex items-center justify-between gap-3 border-t border-stone-200 pt-3">
+                  <span className="text-xs text-stone-500">
+                    Screen share is the primary context channel. Typed input is optional.
+                  </span>
                   <button
                     type="button"
                     onClick={sendTypedMessage}
                     disabled={!snapshot.isConnected || !typedInput.trim()}
-                    className={buttonClassName("info")}
+                    className="rounded-full bg-stone-950 px-4 py-2 text-sm font-medium text-stone-50 transition hover:bg-amber-700 disabled:opacity-40"
                   >
-                    <SendAlt size={14} aria-hidden="true" />
                     Send
                   </button>
                 </div>
               </div>
-              {snapshot.lastError ? (
-                <p className="mt-3 text-[11px] text-[#d29c9c]">{snapshot.lastError}</p>
-              ) : null}
-            </details>
+              {snapshot.lastError ? <p className="mt-3 text-sm text-red-700">{snapshot.lastError}</p> : null}
+            </div>
           </div>
 
-          <aside className="flex flex-col gap-3">
-            <details
-              className="border border-[var(--border)] px-4 py-3"
-              open={setupOpen}
-              onToggle={(event) => setSetupOpen(event.currentTarget.open)}
-            >
-              <summary className="flex cursor-pointer items-center justify-between gap-3">
-                <div>
-                  <p className="text-[10px] font-medium uppercase tracking-[0.06em] text-[var(--foreground-muted)]">
-                    Session setup
-                  </p>
-                  <p className="mt-1 text-[11px] text-[var(--foreground-muted)]">
-                    Optional page hints and startup steps.
-                  </p>
-                </div>
-                <button type="button" className={buttonClassName("default", true)}>
-                  {setupOpen ? (
-                    <ChevronUp size={14} aria-hidden="true" />
-                  ) : (
-                    <ChevronDown size={14} aria-hidden="true" />
-                  )}
-                  {setupOpen ? "Hide" : "Show"}
-                </button>
-              </summary>
+          <aside className="flex flex-col gap-4 rounded-[2rem] border border-black/8 bg-white p-4 shadow-[0_18px_60px_rgba(0,0,0,0.06)]">
+            <section className="space-y-3">
+              <p className="text-xs uppercase tracking-[0.28em] text-amber-700">Page hint</p>
+              <input
+                value={pageTitle}
+                onChange={(event) => setPageTitle(event.target.value)}
+                placeholder="Optional page title"
+                className={inputClassName}
+              />
+              <input
+                value={pageUrl}
+                onChange={(event) => setPageUrl(event.target.value)}
+                placeholder="Optional page URL"
+                className={inputClassName}
+              />
+              <p className="text-xs leading-5 text-stone-500">
+                These fields are optional hints. The real grounding path should come from the shared
+                screen and voice stream.
+              </p>
+            </section>
 
-              <div className="mt-4 space-y-4">
-                <div className="space-y-3">
-                  <input
-                    value={pageTitle}
-                    onChange={(event) => setPageTitle(event.target.value)}
-                    placeholder="Optional page title"
-                    className={inputClassName}
-                  />
-                  <input
-                    value={pageUrl}
-                    onChange={(event) => setPageUrl(event.target.value)}
-                    placeholder="Optional page URL"
-                    className={inputClassName}
-                  />
-                </div>
+            <section className="space-y-3 rounded-[1.5rem] bg-[#f7f1e6] p-4">
+              <p className="text-xs uppercase tracking-[0.28em] text-amber-700">What happens</p>
+              <ol className="space-y-2 text-sm leading-6 text-stone-700">
+                <li>1. Click the primary button.</li>
+                <li>2. Choose the browser tab or screen to share.</li>
+                <li>3. Allow microphone access.</li>
+                <li>4. Speak naturally while Verity watches the page.</li>
+              </ol>
+            </section>
 
-                <div className="border border-[var(--border)] p-3">
-                  <ol className="space-y-2 text-[12px] leading-6 text-[var(--foreground-muted)]">
-                    <li>1. Start the live session.</li>
-                    <li>2. Pick a tab or screen.</li>
-                    <li>3. Allow microphone access.</li>
-                    <li>4. Speak while Verity watches the page.</li>
-                  </ol>
-                </div>
-              </div>
-            </details>
-
-            <details
-              className="border border-[var(--border)] px-4 py-3"
-              open={detailsOpen}
-              onToggle={(event) => setDetailsOpen(event.currentTarget.open)}
-            >
-              <summary className="flex cursor-pointer items-center justify-between gap-3">
-                <div>
-                  <p className="text-[10px] font-medium uppercase tracking-[0.06em] text-[var(--foreground-muted)]">
-                    Runtime details
-                  </p>
-                  <p className="mt-1 text-[11px] text-[var(--foreground-muted)]">
-                    Model, transport, and stream state.
-                  </p>
-                </div>
-                <button type="button" className={buttonClassName("default", true)}>
-                  {detailsOpen ? (
-                    <ChevronUp size={14} aria-hidden="true" />
-                  ) : (
-                    <ChevronDown size={14} aria-hidden="true" />
-                  )}
-                  {detailsOpen ? "Hide" : "Show"}
-                </button>
-              </summary>
-
-              <div className="mt-4 flex flex-wrap gap-2">
-                <Pill label={liveConfig?.live.model ?? "live config unavailable"} />
-                <Pill label="audio modality" />
-                <Pill label="1 FPS screen frames" />
-                <Pill label="sendRealtimeInput" />
-              </div>
-            </details>
+            <section className="space-y-2 text-xs text-stone-500">
+              <Pill label={liveConfig?.live.model ?? "live config unavailable"} />
+              <Pill label="audio modality" />
+              <Pill label="1 FPS screen frames" />
+              <Pill label="sendRealtimeInput" />
+            </section>
           </aside>
         </section>
       </div>
@@ -520,23 +419,22 @@ export default function Home() {
 function TranscriptEntryView({ entry }: { entry: TranscriptEntry }) {
   const tone =
     entry.role === "user"
-      ? "ml-auto border-[#41605d] text-[var(--foreground)]"
+      ? "ml-auto bg-stone-950 text-stone-50"
       : entry.role === "assistant"
-        ? "mr-auto border-[var(--border-strong)] text-[var(--foreground)]"
-        : "mx-auto border-[var(--border)] text-[var(--foreground-muted)]";
+        ? "mr-auto bg-[#20160f] text-stone-100"
+        : "mx-auto bg-stone-200 text-stone-700";
 
   const width = entry.role === "system" ? "max-w-xl" : "max-w-3xl";
 
   return (
-    <article className={`${width} border px-4 py-3 ${tone}`}>
+    <article className={`${width} rounded-[1.6rem] px-4 py-3 shadow-[0_8px_24px_rgba(0,0,0,0.05)] ${tone}`}>
       <div className="flex items-center justify-between gap-3">
-        <span className="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-[0.06em] opacity-80">
-          <TranscriptRoleIcon role={entry.role} />
+        <span className="text-[11px] font-semibold uppercase tracking-[0.24em] opacity-75">
           {entry.role}
         </span>
-        {entry.meta ? <span className="font-mono text-[11px] opacity-70">{entry.meta}</span> : null}
+        {entry.meta ? <span className="text-[11px] opacity-70">{entry.meta}</span> : null}
       </div>
-      <p className="mt-2 whitespace-pre-wrap text-[12px] leading-6">{entry.text}</p>
+      <p className="mt-2 whitespace-pre-wrap text-sm leading-7">{entry.text}</p>
     </article>
   );
 }
@@ -619,60 +517,11 @@ function tryGetHostname(url: string) {
 
 function Pill({ label }: { label: string }) {
   return (
-    <span className="border border-[var(--border)] px-2.5 py-1.5 font-mono text-[11px] text-[var(--foreground-muted)]">
+    <span className="rounded-full border border-stone-200 bg-stone-50 px-3 py-1.5 text-xs text-stone-600">
       {label}
     </span>
   );
 }
 
 const inputClassName =
-  "w-full border border-[var(--border)] bg-transparent px-3 py-3 text-[12px] text-[var(--foreground)] outline-none transition placeholder:text-[var(--foreground-muted)] focus:border-[var(--border-strong)]";
-
-function ControlPill({ label, value }: { label: string; value: string }) {
-  const icon =
-    label === "State" ? (
-      <Information size={12} aria-hidden="true" />
-    ) : label === "Key" ? (
-      <Screen size={12} aria-hidden="true" />
-    ) : (
-      <Settings size={12} aria-hidden="true" />
-    );
-
-  return (
-    <div className="inline-flex h-[26px] items-center gap-2 border border-[var(--border)] px-2.5 text-[11px]">
-      <span className="text-[var(--foreground-muted)]">{icon}</span>
-      <span className="text-[10px] font-medium uppercase tracking-[0.06em] text-[var(--foreground-muted)]">
-        {label}
-      </span>
-      <span className="font-mono text-[11px] text-[var(--foreground)]">{value}</span>
-    </div>
-  );
-}
-
-function buttonClassName(tone: "selected" | "info" | "default", compact = false) {
-  const base =
-    "inline-flex items-center justify-center gap-1.5 border text-[11px] font-normal tracking-[0.01em] transition disabled:cursor-not-allowed disabled:opacity-45";
-  const sizing = compact ? "h-[26px] px-[10px]" : "h-[26px] px-[10px]";
-
-  if (tone === "selected") {
-    return `${base} ${sizing} border-[var(--border-strong)] text-[var(--foreground)] hover:border-[var(--accent)] hover:text-[var(--accent)]`;
-  }
-
-  if (tone === "info") {
-    return `${base} ${sizing} border-[var(--border-strong)] text-[var(--foreground-muted)] hover:border-[var(--foreground)] hover:text-[var(--foreground)]`;
-  }
-
-  return `${base} ${sizing} border-[var(--border)] text-[var(--foreground-muted)] hover:border-[var(--border-strong)] hover:text-[var(--foreground)]`;
-}
-
-function TranscriptRoleIcon({ role }: { role: TranscriptEntry["role"] }) {
-  if (role === "user") {
-    return <Microphone size={12} aria-hidden="true" />;
-  }
-
-  if (role === "assistant") {
-    return <Information size={12} aria-hidden="true" />;
-  }
-
-  return <Settings size={12} aria-hidden="true" />;
-}
+  "w-full rounded-[1.1rem] border border-stone-300 bg-white px-4 py-3 text-sm text-stone-900 outline-none transition placeholder:text-stone-400 focus:border-amber-600 focus:ring-4 focus:ring-amber-200/60";

@@ -4,28 +4,29 @@
   "workspaces": {
     "": {
       "name": "verity",
-      "dependencies": {
-        "@google/genai": "^1.48.0",
-        "@hono/node-server": "^1.14.0",
-        "dotenv": "^16.4.7",
-        "hono": "^4.7.0",
-        "next": "16.2.3",
-        "react": "19.2.4",
-        "react-dom": "19.2.4",
-      },
       "devDependencies": {
-        "@tailwindcss/postcss": "^4",
-        "@types/node": "^20",
-        "@types/react": "^19",
-        "@types/react-dom": "^19",
         "concurrently": "^9.2.1",
         "eslint": "^9",
         "eslint-config-next": "16.2.3",
-        "tailwindcss": "^4",
         "typescript": "^5.9.3",
       },
     },
-    "client": {
+    "packages/api": {
+      "name": "@packages/api",
+      "version": "0.1.0",
+      "dependencies": {
+        "@google/genai": "^1.48.0",
+        "@hono/node-server": "^1.14.0",
+        "@packages/core": "workspace:*",
+        "dotenv": "^16.4.7",
+        "hono": "^4.7.0",
+      },
+      "devDependencies": {
+        "@types/node": "^20",
+        "typescript": "^5",
+      },
+    },
+    "packages/client": {
       "name": "@packages/client",
       "version": "0.0.0",
       "dependencies": {
@@ -41,7 +42,11 @@
         "react": "^19",
       },
     },
-    "extension": {
+    "packages/core": {
+      "name": "@packages/core",
+      "version": "0.0.0",
+    },
+    "packages/extension": {
       "name": "@packages/extension",
       "version": "0.1.0",
       "dependencies": {
@@ -61,9 +66,25 @@
         "vite": "^6.0.3",
       },
     },
-    "packages/core": {
-      "name": "@packages/core",
-      "version": "0.0.0",
+    "packages/web": {
+      "name": "@packages/web",
+      "version": "0.1.0",
+      "dependencies": {
+        "@google/genai": "^1.48.0",
+        "@packages/core": "workspace:*",
+        "dotenv": "^16.4.7",
+        "next": "16.2.3",
+        "react": "19.2.4",
+        "react-dom": "19.2.4",
+      },
+      "devDependencies": {
+        "@tailwindcss/postcss": "^4",
+        "@types/node": "^20",
+        "@types/react": "^19",
+        "@types/react-dom": "^19",
+        "tailwindcss": "^4",
+        "typescript": "^5.9.3",
+      },
     },
   },
   "trustedDependencies": [
@@ -289,11 +310,15 @@
 
     "@nolyfill/is-core-module": ["@nolyfill/is-core-module@1.0.39", "", {}, "sha512-nn5ozdjYQpUCZlWGuxcJY/KpxkWQs4DcbMCmKojjyrYDEAGy4Ce19NN4v5MduafTwJlbKc99UA8YhSVqq9yPZA=="],
 
-    "@packages/client": ["@packages/client@workspace:client"],
+    "@packages/api": ["@packages/api@workspace:packages/api"],
+
+    "@packages/client": ["@packages/client@workspace:packages/client"],
 
     "@packages/core": ["@packages/core@workspace:packages/core"],
 
-    "@packages/extension": ["@packages/extension@workspace:extension"],
+    "@packages/extension": ["@packages/extension@workspace:packages/extension"],
+
+    "@packages/web": ["@packages/web@workspace:packages/web"],
 
     "@protobufjs/aspromise": ["@protobufjs/aspromise@1.1.2", "", {}, "sha512-j+gKExEuLmKwvz3OgROXtrJ2UG2x8Ch2YZUxahh+s1F2HZ+wAceUNLkvy6zKCPVRkU++ZWQrdxsUeQXmcg4uoQ=="],
 

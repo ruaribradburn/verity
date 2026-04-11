@@ -1,6 +1,6 @@
 "use client";
 
-import { GoogleGenAI, Modality, ThinkingLevel, type LiveServerMessage } from "@google/genai";
+import { GoogleGenAI, Modality, type LiveServerMessage } from "@google/genai";
 import {
   AsyncQueue,
   GEMINI_LIVE_API_VERSION,
@@ -11,7 +11,7 @@ import {
   type LiveTokenHttpResponse,
   type PageContext,
   type SessionState,
-} from "@/core";
+} from "@packages/core";
 
 export type LiveSessionSnapshot = {
   state: SessionState;
@@ -155,21 +155,15 @@ export function createLiveSessionManager(options: ManagerOptions): LiveSessionMa
         model: GEMINI_LIVE_MODEL,
         config: {
           responseModalities: [Modality.AUDIO],
-          temperature: liveDefaults.temperature,
-          enableAffectiveDialog: liveDefaults.affectiveDialog,
           systemInstruction: {
             parts: [{ text: buildLiveSystemInstruction(page) }],
           },
           speechConfig: {
-            languageCode: liveDefaults.speechLanguageCode,
             voiceConfig: {
               prebuiltVoiceConfig: {
                 voiceName: liveDefaults.voiceName,
               },
             },
-          },
-          thinkingConfig: {
-            thinkingLevel: ThinkingLevel.MINIMAL,
           },
           inputAudioTranscription: {},
           outputAudioTranscription: {},

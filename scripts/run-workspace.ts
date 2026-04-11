@@ -30,13 +30,15 @@ if (target === "api") {
   env.PORT = env.API_PORT ?? env.PORT ?? "3001";
 }
 
+const packageDir = path.join(repoRoot, "packages", target);
+
 const bunExe =
   process.execPath.toLowerCase().endsWith("bun.exe") || process.execPath.toLowerCase().endsWith("/bun")
     ? process.execPath
     : "bun";
 
-const child = spawn(bunExe, ["run", `${target}:${script}`], {
-  cwd: repoRoot,
+const child = spawn(bunExe, ["run", script], {
+  cwd: packageDir,
   env,
   stdio: "inherit",
 });
