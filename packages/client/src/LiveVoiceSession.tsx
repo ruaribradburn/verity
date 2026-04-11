@@ -87,6 +87,7 @@ export function LiveVoiceSession({
   const playbackAudioContextRef = useRef<AudioContext | null>(null);
   const playbackCursorRef = useRef(0);
   const lastTurnCountRef = useRef(0);
+  const prevUserTranscriptRef = useRef("");
   const snapshotRef = useRef<LiveSessionSnapshot>({
     state: "disconnected",
     partialUserTranscript: "",
@@ -153,14 +154,21 @@ export function LiveVoiceSession({
     }
 
     lastTurnCountRef.current = snapshot.turnCompleteCount;
-    const userText = snapshot.partialUserTranscript.trim();
+    const fullUserTranscript = snapshot.partialUserTranscript.trim();
+    // Extract only the new portion of the user transcript for this turn.
+    const prev = prevUserTranscriptRef.current;
+    const turnText = fullUserTranscript.startsWith(prev)
+      ? fullUserTranscript.slice(prev.length).trim()
+      : fullUserTranscript;
+    prevUserTranscriptRef.current = fullUserTranscript;
+
     setTranscript((current) => {
       const next = [...current];
-      if (userText) {
+      if (turnText) {
         next.push({
           id: `user-${snapshot.turnCompleteCount}`,
           role: "user",
-          text: userText,
+          text: turnText,
           meta: "voice",
         });
       }
@@ -174,8 +182,8 @@ export function LiveVoiceSession({
       }
       return next;
     });
-    if (userText && onUserTurnComplete) {
-      onUserTurnComplete(userText);
+    if (turnText && onUserTurnComplete) {
+      onUserTurnComplete(turnText);
     }
   }, [snapshot.partialAssistantTranscript, snapshot.partialUserTranscript, snapshot.turnCompleteCount]);
 

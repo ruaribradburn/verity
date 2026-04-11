@@ -1,4 +1,4 @@
-import{c as o,r as d}from"./permissions-check-B5btMRg-.js";const c=document.getElementById("perm-list"),a=document.getElementById("grant"),l=document.getElementById("refresh"),e=document.getElementById("status");async function r(){const t=await o();c.innerHTML="";for(const s of t.items){const n=document.createElement("li");n.className="perm-item",n.innerHTML=`
+import{c as o,r as d}from"./permissions-check-DtM4GrBm.js";const c=document.getElementById("perm-list"),a=document.getElementById("grant"),l=document.getElementById("refresh"),e=document.getElementById("status");async function r(){const t=await o();c.innerHTML="";for(const s of t.items){const n=document.createElement("li");n.className="perm-item",n.innerHTML=`
       <div class="perm-dot ${s.granted?"granted":"pending"}"></div>
       <div>
         <div class="perm-name">${s.label}</div>
