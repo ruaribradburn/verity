@@ -363,6 +363,7 @@ export default function App() {
 
   return (
     <div className="flex h-screen bg-gray-950 text-gray-200 overflow-hidden">
+      <video ref={videoRef} autoPlay playsInline muted style={{ position: 'fixed', top: '-9999px', left: '-9999px', width: '10px', height: '10px', opacity: 0 }}></video>
       <canvas ref={canvasRef} style={{ display: 'none' }}></canvas>
 
       {/* LHS Configuration Panel */}
@@ -417,9 +418,10 @@ export default function App() {
              {error && <div className="text-red-400 text-sm flex items-center gap-1 mr-4"><ShieldAlert size={14}/> {error}</div>}
              
              {isScreenPolling && latestFrame && (
-                <div className="flex items-center gap-2 px-3 py-1 bg-blue-500/10 border border-blue-500/30 rounded text-blue-400 text-[10px] font-bold uppercase tracking-widest">
-                   <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
-                   Live Context Active
+                <div className="flex items-center gap-2 bg-gray-950 px-2 py-1 rounded border border-gray-700 relative overflow-hidden">
+                   <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse z-10 absolute top-2 right-2"></div>
+                   <img src={`data:image/jpeg;base64,${latestFrame}`} className="h-8 object-cover rounded opacity-80" alt="Live PIP" />
+                   <span className="text-xs text-gray-400 uppercase tracking-wider font-semibold">Live Polling</span>
                 </div>
              )}
 
@@ -432,35 +434,6 @@ export default function App() {
              </button>
           </div>
         </div>
-
-        {/* New Live Context View Area */}
-        {isScreenPolling && (
-          <div className="p-4 bg-gray-900/80 border-b border-gray-800 flex gap-4">
-             <div className="w-64 aspect-video bg-black rounded border border-gray-700 relative overflow-hidden flex items-center justify-center">
-                <video 
-                  ref={videoRef} 
-                  autoPlay 
-                  playsInline 
-                  muted 
-                  className="w-full h-full object-contain"
-                />
-                {!latestFrame && <div className="text-gray-600 text-[10px]">Initializing Stream...</div>}
-                <div className="absolute bottom-2 left-2 bg-black/60 px-2 py-0.5 rounded text-[8px] font-mono text-gray-400">
-                  SECURE LIVE FEED | {frameCount} FRAMES
-                </div>
-             </div>
-             <div className="flex-1 space-y-2">
-                <div className="text-xs font-bold text-gray-500 uppercase tracking-widest">Active Screen Perspective</div>
-                <div className="text-sm text-gray-300 line-clamp-2 italic">
-                  "Watching for interesting, controversial, or news-worthy content..."
-                </div>
-                <div className="flex gap-2">
-                   <span className="px-2 py-0.5 bg-green-900/30 text-green-400 rounded text-[10px] border border-green-800/50">LOOP_ACTIVE</span>
-                   <span className="px-2 py-0.5 bg-blue-900/30 text-blue-400 rounded text-[10px] border border-blue-800/50">1 frame/sec</span>
-                </div>
-             </div>
-          </div>
-        )}
         
         <div className="flex-1 p-6 overflow-y-auto space-y-4">
           {messages.length === 0 && (
