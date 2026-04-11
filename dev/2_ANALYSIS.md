@@ -1,50 +1,67 @@
-# Analysis: verity-phase-1-voice-analyst-ts
+# Analysis: refresh-dev-docs-to-current-architecture
 
 ## Current State
-- The repository currently contains only `notes.md`, which serves as the product requirements source.
-- There is no TypeScript app scaffold, browser extension implementation, backend/service code, or generated runtime code.
-- `git status --short` shows a deleted tracked `SCOPE.md`, so current planning artifacts should not assume any surviving prior workflow state.
+- The repo is no longer greenfield. It already contains a working single-tree TypeScript implementation.
+- `src/app/page.tsx` provides the only current product surface: a Next.js client page for starting one live Gemini session, sharing the screen, streaming microphone audio, and sending optional typed messages.
+- `src/lib/live-session.ts` owns the browser-side Gemini Live session manager, token fetch, queue-based message processing, transcript accumulation, and snapshot state.
+- `src/server/index.ts` is a Hono API that provides health/config/token endpoints plus deterministic local analysis and fixture validation endpoints.
+- `src/core/index.ts` is the current shared architecture center: types, runtime constants, system instruction construction, deterministic analysis logic, fixture generation, and validation helpers.
 
-## External Alignment
-- The product notes describe a full multi-phase system, but `## 7. Development Phases` already segments the work into an initial Phase 1 that fits a greenfield first slice.
-- `## 3. Moral & Epistemic Framework` supplies concrete behavioral constraints that should move from prose into hard requirements: calibrated uncertainty, non-prescriptive language, and no false equivalence.
-- `### 5.2 The Two Loops` suggests a useful separation of concerns even in a reduced implementation: keep the voice/session path small and real-time, and defer heavy orchestration until later.
-- `dev/geminilive-reference.md` supplies the concrete runtime shape for a pure TypeScript implementation: queue-based response processing, explicit session state, browser audio handling, tool registry separation, and async job boundaries for non-live work.
+## Mismatch With Existing `dev/` Docs
 
-## Gap Analysis
-| Gap | Current | Required | Approach |
-|-----|---------|----------|----------|
-| Repository structure | No app code | A repo shape that can host TypeScript browser and service code | Create a minimal TypeScript workspace with clear future extension points |
-| Product boundary | Entire roadmap described in notes | A bounded first milestone | Scope the task to Phase 1 Voice Analyst only |
-| Behavioral rules | Epistemic framework exists only as prose | Testable product requirements | Convert framework language into explicit requirements and fixtures |
-| Voice interaction loop | Conceptual only | End-to-end Gemini Live session flow from page capture to spoken/text response | Specify extension capture, queue-based live session handling, and analysis response loop |
-| Tool/orchestration boundary | Not implemented | Clear separation between live turn tools and slower async work | Adopt the reference doc's tool registry and async job boundary patterns |
-| Future extensibility | Long-term architecture is described but absent | A plan that avoids rework when adding graph/sub-agent/dashboard phases | Reserve module boundaries and interfaces without implementing deferred systems |
+| Area | Stale docs say | Current code does | Required correction |
+|------|----------------|-------------------|---------------------|
+| Repo maturity | Greenfield implementation plan | Working app and API already exist | Rewrite as current-state docs, not build plan |
+| Repo structure | Planned `extension/`, `server/`, `shared/`, dashboard, future workspaces | One top-level `src/` tree plus `scripts/` | Document actual directories only |
+| Runtime ownership | Broader extension or backend-led session loop | Browser opens Gemini Live directly after fetching token from API | Make browser-owned session explicit |
+| Backend role | Larger orchestration surface | Hono token broker + deterministic helper API | Narrow the server docs to implemented responsibilities |
+| Analysis path | Implied richer live analysis/backend orchestration | Deterministic helper logic in `src/core` plus fixture assertions | Distinguish implemented deterministic path from future orchestration |
+| Product scope | Phase-1 implementation roadmap for a broader system | Live screen-share + voice analyst slice already implemented | Shift docs from planning future build to describing current slice |
+| Technology assumptions | Rust/WASM/extension/dashboard remained deferred implementation detail | Those paths are absent from runtime code | Move them to future-direction context only |
 
-## Integration Points
-- `package.json`: workspace root for frontend and service packages.
-- `src/` or `app/`: live session manager, transcript state, and UI shell.
-- `extension/`: browser-side page capture and voice controls.
-- `shared/`: shared request/response types and tool schemas.
-- `server/`: optional token broker, tool APIs, and async job orchestration.
-- `README.md`: bootstrap and verification workflow for a greenfield repo.
+## Architectural Pattern Now Evident In Code
+- Shared constants and domain types live in `src/core`, not in a separate package.
+- The browser is responsible for session startup, media capture, and direct Gemini Live transport.
+- The API is intentionally thin:
+  - CORS and env normalization
+  - ephemeral-token brokering
+  - local config exposure
+  - deterministic analysis fixtures and validation
+- The current grounding model is multimodal but lightweight:
+  - page metadata hint at connect time
+  - live screen frames at one FPS
+  - live microphone audio at 16 kHz PCM
+  - assistant audio playback in-browser at 24 kHz PCM
+- The epistemic stance is reinforced in two places:
+  - deterministic local analysis helpers and fixtures
+  - connect-time system instruction sent to Gemini Live
+
+## Documentation Consequences
+- `dev/` should stop reading like a pre-implementation artifact package and start reading like a living architecture snapshot.
+- Product-direction files such as `notes.md` and `docs/PDR.md` should be treated as aspirational context, not primary implementation authority.
+- Future-facing items still matter, but they must be labeled as deferred or speculative:
+  - multi-agent orchestration
+  - knowledge graph persistence
+  - extension capture
+  - dashboard UI
+  - broader connector-based research
 
 ## Resolved Assumptions
-- The first implementation target should be the notes' Phase 1 "Voice Analyst" milestone, not the full multi-phase platform.
-- The planning package should preserve future extension points for entity graph, sub-agents, and dashboard work without implementing them now.
-- The epistemic framework is part of the product definition and must be treated as functional behavior, not optional prompt flavor.
-- Because the repo is greenfield, the first implementation can optimize for a single-user developer workflow before production hardening.
-- The Gemini Live reference provides enough concrete implementation guidance to plan a TypeScript-first runtime without inventing a separate architecture.
+- The current implementation is intentionally TypeScript-only.
+- The current browser surface is a Next.js page, not a browser extension.
+- Gemini Live session ownership currently belongs in the browser, not the backend.
+- The current server-side analysis path is deterministic local logic rather than a second live-model runtime.
+- `dev/geminilive-reference.md` is still useful, but only the queue/state/browser-pipeline patterns are currently implemented.
 
 ## Unresolved Unknowns
-None. Remaining product risks are captured as planned spikes or deferred decisions rather than blockers for specification.
+- Whether the browser-owned live connection remains the final architecture once auth, reliability, or session-resume requirements grow.
+- Whether the deterministic analysis endpoint is a temporary validation aid or the seed of a more structured analysis service.
+- Whether future proactive Sentinel behavior should live entirely in the browser session loop or involve stronger backend orchestration.
 
 ## Blockers
-None.
+None. The current codebase is coherent enough to support a full documentation refresh.
 
 ## Intentionally Deferred
-- Exact provider validation for Gemini Live credential strategy and tool limits until implementation-time spike work.
-- Persistent graph storage, multi-session memory, and semantic search.
-- Parallel research sub-agents and multi-region coverage fan-out.
-- Dashboard UI, graph visualisation, and source scoring systems.
-- Production privacy, tenancy, encryption, and cost-control policies beyond what is needed for local development.
+- Any architectural commitments around graph storage, multi-tab ingestion, backend research connectors, or sub-agent fan-out.
+- Rewriting `notes.md`, `docs/PDR.md`, or `docs/architecture.md` in this task.
+- Converting future-direction concepts into present-tense implementation claims.

@@ -1,114 +1,97 @@
-# Reference: verity-phase-1-voice-analyst-ts
+# Reference: refresh-dev-docs-to-current-architecture
 
 ## Purpose
-High-signal working brief distilled from the existing product notes for turning the concept into a bounded Phase 1 implementation plan.
+High-signal source map for rewriting the `dev/` artifacts around the architecture that is actually implemented today.
 
-## Product Direction
+## Current Implementation Sources
 
-### Verity product notes
-- Source: `notes.md`
-- Why it matters: This is the only authoritative product source currently in the repo and defines the product vision, core capabilities, architecture intent, and staged roadmap.
-- Focus areas:
-  - `## 2. Core Capabilities` for which capabilities belong in the long-term product and which should be deferred from the first slice
-  - `## 3. Moral & Epistemic Framework` for tone, uncertainty handling, and false-equivalence constraints
-  - `## 4. Interaction Model` for the voice-first modes and user prompts
-  - `## 5. Technical Architecture` for the proposed extension, WASM, Rust service, and orchestration boundaries
-  - `## 7. Development Phases` for the natural task boundary of an initial implementation milestone
-- Notes:
-  - The notes describe a broad product spanning four phases, but Phase 1 already provides a natural vertical slice: voice interface, page parsing, and basic bias flagging.
-  - The distinctive product behavior is not only "analyse web pages" but doing so with epistemic restraint: uncertainty-first language, no ideological moralising, and no false equivalence when evidence is one-sided.
-  - The proposed architecture separates a latency-sensitive inner voice loop from heavier outer-loop analysis and later fan-out work; for the first slice, only the minimum required subset should be implemented.
-  - Later capabilities such as persistent graph memory, sub-agent fan-out, and dashboard views should influence boundaries now but remain deferred from the first milestone.
-- Useful anchors:
-  - `### 2.1 Real-Time Page Analysis`
-  - `### 3.2 Balanced Without False Equivalence`
-  - `### 3.3 Uncertainty-First Language`
-  - `### 4.2 Proactive vs. Reactive Modes`
-  - `### 5.2 The Two Loops`
-  - `## 7. Development Phases`
+### Repository entrypoint and developer workflow
+- Source: `README.md`
+- Why it matters: This is the clearest high-level description of the current source layout, local run flow, environment variables, and intended product surface.
+- Key points:
+  - The repo uses one top-level `src/` tree rather than `packages/*` or Rust crates.
+  - `bun run dev` starts the Next.js UI and Hono API together.
+  - The UI is transcript-first and centered on one Gemini Live voice session plus screen share.
+  - The documented Live API conventions already align with the current code: ephemeral tokens, `sendRealtimeInput`, and connect-time config.
 
-## Gemini Live Runtime Pattern
+### Architecture summary
+- Source: `docs/architecture.md`
+- Why it matters: This file already captures the simplified implementation shape and confirms that older package-oriented documentation is obsolete.
+- Key points:
+  - Current implementation lives in `src/core`, `src/app`, `src/lib`, `src/server`, and `scripts`.
+  - `.env` controls ports, origins, and API base URLs.
+  - `docs/PDR.md` remains broader product direction, not the active implementation shape.
 
-### Gemini Live implementation reference
+### Shared domain and deterministic core
+- Source: `src/core/index.ts`
+- Why it matters: This file is the authoritative definition of current shared types, runtime constants, deterministic analysis behavior, fixture data, and Gemini Live config defaults.
+- Key points:
+  - Shared types include `PageContext`, `AnalysisRequest`, `AnalysisResponse`, `SessionState`, `LiveConfigSummary`, and token/config response types.
+  - Current analysis is deterministic local logic, not LLM-backed server reasoning.
+  - Epistemic behavior is implemented as explicit helper logic and fixture assertions, not only as prompt prose.
+  - Live defaults include audio responses, one FPS video frames, context-window compression, session resumption, and automatic activity detection settings.
+
+### Browser-side live session runtime
+- Source: `src/lib/live-session.ts`
+- Why it matters: This file is the primary implementation reference for the current Live API pattern.
+- Key points:
+  - The browser fetches an ephemeral token from `POST /live/token`.
+  - The browser opens `ai.live.connect(...)` directly.
+  - Session state is explicit and surfaced through snapshots.
+  - Inbound server messages are serialized through an `AsyncQueue`.
+  - Runtime text, audio, video, and audio-end markers all go through `sendRealtimeInput`.
+  - The system instruction is built from the current `PageContext`.
+
+### Browser UI and media capture
+- Source: `src/app/page.tsx`
+- Why it matters: This file shows how the actual product surface behaves today.
+- Key points:
+  - The user starts one live session from the browser UI.
+  - Screen share is captured via `getDisplayMedia`, rendered to a canvas, JPEG-encoded, and sent at one frame per second.
+  - Microphone input is captured via `getUserMedia`, downsampled to 16 kHz PCM, and streamed live.
+  - Assistant audio is received as PCM bytes and played back in the browser.
+  - Optional page URL/title fields are hints; the intended grounding path is the live screen and voice stream.
+
+### API server
+- Source: `src/server/index.ts`
+- Why it matters: This file defines the current backend boundary and makes the implemented responsibilities unambiguous.
+- Key points:
+  - The API is a standalone Hono server.
+  - It exposes `/health`, `/fixtures`, `/live/config`, `/live/token`, `/validate`, and `/analyze`.
+  - The server handles CORS and environment normalization.
+  - The server brokers ephemeral Gemini tokens if `GEMINI_API_KEY` is present.
+  - `POST /analyze` currently routes to deterministic local analysis helpers from `src/core`.
+
+### Environment and launch helpers
+- Sources: `.env.example`, `scripts/run-workspace.ts`, `scripts/kill-dev-ports.ts`
+- Why they matter: These files define how the repo is actually run and where the docs need to be precise.
+- Key points:
+  - Web and API ports are distinct and loaded from repo-root `.env`.
+  - `run-workspace.ts` injects the correct `PORT` per target.
+  - `kill-dev-ports.ts` is best-effort and effectively macOS/Linux-focused; on Windows it warns and skips process cleanup.
+
+## Product-Direction Sources
+
+### Product notes and PDR
+- Sources: `notes.md`, `docs/PDR.md`
+- Why they matter: These still describe the broader Verity vision, but much of their architecture is not yet implemented.
+- Key points:
+  - They are useful for roadmap intent, epistemic stance, and longer-term product language.
+  - They are not authoritative for current code structure.
+  - They still contain older assumptions such as browser extension capture, dashboard surfaces, research fan-out, graph persistence, Rust/WASM modules, and broader multi-agent orchestration.
+
+### Gemini Live reference
 - Source: `dev/geminilive-reference.md`
-- Why it matters: This is now the primary implementation reference for the runtime architecture, session loop, tool wiring, audio handling, and outer orchestration boundary.
-- Focus areas:
-  - `## Recommended Architecture` for the three-layer split between live interaction, tool execution, and outer orchestration
-  - `## The Core Agent Loop` for the queue-based inbound message processor
-  - `## Bootstrapping a Live Session` for session setup and callback structure
-  - `## Voice Input Pipeline` and `## Assistant Audio Output` for browser audio handling
-  - `## Tool Calling Architecture` for declarative tool schemas and runtime executors
-  - `## The Outer Loop` for async job boundaries and long-running work
-- Notes:
-  - The strongest durable pattern is an event-driven queue processor rather than ad hoc websocket callback handling.
-  - The live session should stay focused on low-latency interaction and immediate tool use; slower analysis should move behind async job tools when needed.
-  - Text input should remain available even in a voice-first product because it improves debugging, accessibility, and deterministic testing.
-  - State should be explicit and session-scoped: setup completion, listening/speaking state, transcript accumulation, and playback lifecycle should not be inferred from UI alone.
-  - The reference argues for TypeScript-native implementations of the browser loop, tool registry, and orchestration surface, which aligns with the new decision to avoid Rust entirely.
-- Useful anchors:
-  - `## Recommended Architecture`
-  - `## The Core Agent Loop`
-  - `## Bootstrapping a Live Session`
-  - `## Tool Calling Architecture`
-  - `## State Machine Recommendation`
-  - `## A Good Default Blueprint`
-
-## Architecture Constraints
-
-### Greenfield repo reality
-- Source: repository working tree
-- Why it matters: The repo currently contains product notes only, so the plan must bootstrap a codebase rather than integrate with existing code.
-- Focus areas:
-  - No existing Rust workspace, browser extension, frontend app, or generated context files
-  - Git history includes a deleted legacy `SCOPE.md`, but the current working material is `notes.md`
-- Notes:
-  - Because the repo is nearly empty, planning must distinguish clearly between current state and proposed architecture.
-  - The plan should avoid pretending there is existing infrastructure for backend services, orchestration storage, or frontend build tooling.
-  - The first milestone should create only the minimum scaffolding required to demonstrate the product loop end to end.
-- Useful anchors:
-  - Working tree root
-  - `git status --short`
-
-### TypeScript-only implementation constraint
-- Source: user directive in the current session
-- Why it matters: This is a hard implementation boundary and overrides earlier planning assumptions about Rust services or shared Rust/WASM code.
-- Focus areas:
-  - browser runtime in TypeScript
-  - TypeScript service or server layer for non-secret orchestration and optional token brokering
-  - shared TypeScript types instead of language-bridging models
-- Notes:
-  - Any previous references to Rust backend, Rust crates, or WASM preprocessing should be treated as obsolete for this task.
-  - If client-side extraction is needed, it should be implemented directly in TypeScript first unless performance data later justifies a different approach.
-- Useful anchors:
-  - `dev/0_SCOPE.md`
-
-## Planning Inputs
-
-### Open questions from the notes
-- Source: `notes.md`, `## 6. Open Questions`
-- Why it matters: These questions identify where the product concept still contains risk or unresolved implementation detail.
-- Focus areas:
-  - Privacy model
-  - Gemini session limits and context carryover
-  - Rig + Gemini provider support
-  - WASM bundle size
-  - Cost management and source scoring
-  - False-equivalence calibration rubric
-  - Audio latency budget
-- Notes:
-  - Most of these should not block the first planning package if the scope is narrowed to a single-user Phase 1 slice.
-  - The riskiest items for the first implementation are provider maturity, voice latency, and how much page content can be injected per turn.
-  - The rest can be captured as spikes or deferred decisions rather than treated as blockers.
-- Useful anchors:
-  - `## 6. Open Questions`
-
-## Reference Codebases
-None. No local implementation exists yet, and no external reference repo was required for this planning pass.
+- Why it matters: This remains a strong pattern reference for the current live session architecture.
+- Key points:
+  - Queue-driven message processing matches the implemented `AsyncQueue` pattern.
+  - Explicit state handling and browser-managed audio pipelines align with current code.
+  - Tool-calling and outer-loop orchestration guidance are still mostly future-facing for this repo.
 
 ## Synthesis
-The notes still imply the right first milestone: ship a narrow "Voice Analyst" slice that proves page capture, live conversational analysis, and Verity's epistemic voice. The Gemini Live reference supplies the concrete TypeScript runtime pattern: queue-driven live session management, a narrow tool layer, explicit state machines, and an optional async orchestration boundary. Planning should resist building the graph, sub-agent fan-out, or dashboard up front, but the repo shape should leave explicit extension points for those later phases.
+The current codebase has already converged on a much simpler and more concrete architecture than the older `dev/` docs describe. The durable implementation pattern is: one TypeScript repo, one browser UI, one Hono API, shared types and helper logic in `src/core`, and a browser-owned Gemini Live session grounded by screen share and microphone input. Deterministic analysis helpers currently stand in for the broader research and orchestration ideas still described in product-direction documents.
 
 ## Open Threads
-- Confirm whether Gemini Live remains the intended real-time provider at implementation time.
-- Decide whether the initial browser surface is a Chrome extension popup, side panel, or background-driven voice session.
-- Decide whether the first slice includes proactive Sentinel nudges or starts with on-demand analysis only.
+- Whether future work will keep the browser-owned live connection or move session ownership back behind a stronger server boundary.
+- Whether deterministic `POST /analyze` logic remains a local validation aid or evolves into a richer structured analysis pipeline.
+- How much of the broader product vision should stay in `dev/` versus living only in product docs.

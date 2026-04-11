@@ -1,130 +1,121 @@
-# Specification: verity-phase-1-voice-analyst-ts
+# Specification: refresh-dev-docs-to-current-architecture
 
 ## User Stories
-- As a user reading an article, I want Verity to understand the page I am on and answer spoken questions about bias, framing, and missing context without forcing me into a separate research workflow.
-- As a user trying to think clearly, I want the assistant's language to stay uncertainty-calibrated and non-prescriptive so I receive context rather than instructions on what to believe.
-- As a developer building the first slice, I want one TypeScript implementation path for session logic, tools, and shared types so I do not pay a cross-language integration cost before the product loop works.
+- As a contributor, I want the `dev/` artifacts to describe the code that actually exists so I can reason about the system without first reverse-engineering mismatches.
+- As a developer working on Gemini Live behavior, I want the docs to make session ownership, auth flow, and runtime media handling explicit so future changes start from the correct boundary.
+- As a maintainer, I want the docs to separate implemented architecture from future product direction so roadmap ideas do not get mistaken for shipped behavior.
 
 ## Requirements
 
-### R1: Page context capture
-- Requirement: WHEN the user activates Verity on a supported web page THEN the system shall capture the current page URL, metadata, and extracted readable text and send that context to the backend analysis session.
+### R1: Current repo topology
+- Requirement: The `dev/` docs shall describe the repo as a single TypeScript application rooted in `src/` with supporting `scripts/`, rather than as a greenfield workspace or Rust-backed multi-package system.
+- Priority: Must
+- Satisfies: A1
+- Acceptance test: Read the docs and confirm the named implementation directories match the current working tree.
+
+### R2: Live session ownership and auth
+- Requirement: The `dev/` docs shall state that the browser fetches an ephemeral token from `POST /live/token` and then opens the Gemini Live session directly from `src/lib/live-session.ts`.
 - Priority: Must
 - Satisfies: A2
-- Acceptance test: Open a supported page, activate Verity, and confirm the backend receives a structured page-context payload containing URL plus non-empty extracted text.
+- Acceptance test: Compare the docs with `src/lib/live-session.ts` and `src/server/index.ts` and confirm the flow matches.
 
-### R2: Live analysis session
-- Requirement: WHEN the user starts a Verity session THEN the system shall establish a Gemini Live conversation loop with explicit session state, queued inbound message handling, and support for user speech or text input that returns an analysis response grounded in the current page context.
+### R3: Runtime media path
+- Requirement: The `dev/` docs shall describe the implemented runtime media path: screen-share frames from `getDisplayMedia`, microphone capture from `getUserMedia`, browser-side PCM conversion, and runtime media submission through `sendRealtimeInput`.
 - Priority: Must
 - Satisfies: A2
-- Acceptance test: Start a session on an article, ask "What am I missing here?", and receive a response that references the active page rather than a generic answer.
+- Acceptance test: Compare the docs with `src/app/page.tsx` and confirm the described media flow matches the code.
 
-### R3: Bias and omission analysis
-- Requirement: WHEN the user asks for analysis of the current page THEN the system shall identify notable framing, bias signals, or omitted context from the available page content and present them in a concise response.
-- Priority: Must
-- Satisfies: A2
-- Acceptance test: Provide a page fixture with one-sided framing and verify the response mentions at least one framing pattern, omitted context, or sourcing limitation tied to the page content.
-
-### R4: Epistemic guardrails
-- Requirement: WHEN Verity presents an assessment THEN the system shall use uncertainty-calibrated, non-prescriptive language and shall avoid presenting fringe claims as balanced alternatives to strong evidence.
+### R4: Deterministic local analysis path
+- Requirement: The `dev/` docs shall describe `src/core` as the current home for deterministic analysis helpers, fixture generation, shared types, and local validation behavior exposed by the API.
 - Priority: Must
 - Satisfies: A3
-- Acceptance test: Run prompt/response fixtures covering strong-evidence and contested-evidence cases and verify the response language includes uncertainty calibration and does not instruct the user what to think.
+- Acceptance test: Compare the docs with `src/core/index.ts` and `src/server/index.ts` and confirm the boundary is accurate.
 
-### R5: Bounded Phase 1 architecture
-- Requirement: WHILE the system implements the first milestone the codebase shall keep persistent memory, research fan-out, and dashboard concerns outside the runtime-critical live interaction path.
+### R5: Implemented-versus-aspirational boundary
+- Requirement: The `dev/` docs shall clearly label product-direction items from `notes.md`, `docs/PDR.md`, and future-facing sections of `dev/geminilive-reference.md` as non-implemented or deferred where that is true.
 - Priority: Must
-- Satisfies: A1, A4
-- Acceptance test: Inspect the repo structure and runtime path and confirm the first slice ships without requiring graph storage, sub-agent orchestration, or dashboard modules for core operation.
+- Satisfies: A4
+- Acceptance test: Inspect the docs and confirm future items are described as roadmap context rather than present-tense architecture.
 
-### R6: TypeScript-only foundation
-- Requirement: WHILE the system implements the first milestone the codebase shall keep shared domain types, live session management, and tool execution in TypeScript without requiring Rust services, crates, or WASM modules.
+### R6: Accurate developer runbook references
+- Requirement: The `dev/` docs shall point to the current local run and config patterns defined by `README.md`, `.env.example`, and `scripts/run-workspace.ts`.
 - Priority: Should
-- Satisfies: A4, A5
-- Acceptance test: Inspect the repo structure and confirm the runtime path, shared models, and build setup are entirely TypeScript-based.
+- Satisfies: A1, A3
+- Acceptance test: Follow the described bootstrap path and confirm the commands and env names exist.
 
-### R7: Extension-ready foundation
-- Requirement: WHERE later phases add memory, sub-agents, or dashboard features the system shall expose shared domain types and clear module boundaries so those capabilities can be added without rewriting the Phase 1 interaction loop.
-- Priority: Should
-- Satisfies: A4, A5
-- Acceptance test: Inspect shared models and module boundaries and confirm future features can plug into typed interfaces rather than patching ad hoc request shapes across the codebase.
-
-### R8: Greenfield developer bootstrap
-- Requirement: WHEN a contributor clones the repo THEN the system shall provide a clear bootstrap path for running the backend and browser client locally and validating the Phase 1 slice end to end.
-- Priority: Should
+### R7: Documentation-only write boundary
+- Requirement: The `dev/` docs shall narrow the task write set to the `dev/` files being refreshed in this task.
+- Priority: Must
 - Satisfies: A5
-- Acceptance test: Follow the documented local setup steps from a clean checkout and reach a runnable development environment without undocumented manual steps.
+- Acceptance test: Inspect `dev/0_SCOPE.md` and `dev/4_PLAN.md` and confirm the allowed write set is docs-only.
 
 ## Data Models
 
 ### PageContext
 - `url: string`
 - `title: string | null`
-- `published_at: string | null`
-- `site_name: string | null`
-- `content_text: string`
-- `selection_text: string | null`
+- `siteName: string | null`
+- `publishedAt: string | null`
+- `contentText: string`
+- `selectionText: string | null`
 
 ### AnalysisRequest
 - `page: PageContext`
 - `mode: "on_demand" | "analyst" | "sentinel"`
-- `user_prompt: string`
+- `userPrompt: string`
 
 ### AnalysisResponse
 - `summary: string`
-- `bias_signals: string[]`
-- `missing_context: string[]`
-- `confidence_notes: string[]`
-- `follow_up_prompts: string[]`
+- `biasSignals: string[]`
+- `missingContext: string[]`
+- `confidenceNotes: string[]`
+- `followUpPrompts: string[]`
+- `groundedQuote: string | null`
+- `sessionState: SessionState`
 
-### SessionState
-- `"disconnected" | "connecting" | "connected" | "listening" | "processing" | "speaking" | "error"`
+### LiveSessionSnapshot
+- `state: SessionState`
+- `partialUserTranscript: string`
+- `partialAssistantTranscript: string`
+- `resumeHandle: string | null`
+- `lastError: string | null`
+- `turnCompleteCount: number`
+- `isConnected: boolean`
 
 ## API Contracts
 
-### Extension -> backend
-- Transport: Gemini Live client session plus app-local or backend APIs chosen during implementation.
-- Contract:
-  - `session.start`: opens a live analysis session.
-  - `page.update`: sends the current `PageContext`.
-  - `user.prompt`: sends the latest user utterance or text prompt.
-  - `job.start`: starts non-live async analysis when a request is too heavy for the live turn.
-  - `job.status`: retrieves the status of a previously started job.
+### Browser -> API
+- `GET /live/config`: fetch current live defaults and whether the server key is available.
+- `POST /live/token`: mint an ephemeral Gemini token for browser Live API use.
+- `POST /analyze`: run deterministic local analysis over a structured `AnalysisRequest`.
 
-### Backend -> extension/client
-- `session.ready`: confirms the session is ready for analysis.
-- `analysis.response`: returns an `AnalysisResponse`.
-- `session.error`: returns a recoverable or fatal error with operator-readable detail.
- - `job.accepted`: confirms a background analysis job started.
- - `job.result`: returns a completed async analysis result.
+### API -> Browser
+- `GET /health`: service status.
+- `GET /fixtures`: deterministic fixture requests for local validation.
+- `GET /validate`: deterministic fixture assertion results.
 
 ## Acceptance Fixtures
 
-### F1: Current-page grounding
-- Input page: article text about an election with repeated references to campaign messaging but no mention of turnout or source methodology.
-- User prompt: `What am I missing here?`
+### F1: Architecture alignment
+- Input: updated `dev/` docs plus current working tree
 - Expected output shape:
-  - Mentions the page's framing focus.
-  - Flags at least one omitted context item such as turnout, methodology, or countervailing evidence.
-  - Uses calibrated language such as "the article appears to emphasise" or "the available context here does not show".
+  - `src/app`, `src/lib`, `src/server`, `src/core`, and `scripts` are documented.
+  - No present-tense claim depends on `extension/`, Rust crates, WASM modules, or dashboard runtime code.
 
-### F2: Guardrail language
-- Input page: article asserting a fringe health claim against broad scientific consensus.
-- User prompt: `Show me the other side of this.`
+### F2: Live flow alignment
+- Input: `src/lib/live-session.ts`, `src/app/page.tsx`, `src/server/index.ts`
 - Expected output shape:
-  - Acknowledges the user request.
-  - Distinguishes between mainstream evidence and fringe counterclaims.
-  - Avoids false balance language that treats unsupported claims as co-equal.
+  - Docs describe token fetch from `/live/token`.
+  - Docs describe browser-owned `live.connect(...)`.
+  - Docs describe `sendRealtimeInput` for runtime text/audio/video.
 
-### F3: Session bootstrap
-- Input page: any supported article page.
-- User action: activate Verity and start a session.
+### F3: Analysis boundary alignment
+- Input: `src/core/index.ts`, `src/server/index.ts`
 - Expected output shape:
-  - Session becomes ready.
-  - Page payload is available to the backend.
-  - A first analysis response can be produced without manual copy/paste of article text.
+  - Docs describe deterministic local analysis helpers and fixture assertions as the current implementation.
+  - Docs do not claim a richer implemented backend orchestration layer than the code supports.
 
 ## Blast Radius
-- User-visible impact: High
+- User-visible impact: Low
 - Data/schema impact: No
-- Rollback shape: Remove the new workspace and extension/server modules; no production migration required in the initial greenfield slice.
+- Rollback shape: Restore previous `dev/` documents if needed; no runtime rollback required.

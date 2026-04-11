@@ -1,34 +1,34 @@
-## D1: First milestone is Phase 1, not the full roadmap
+## D1: `dev/` should describe the code that exists now
 - When: 2026-04-11
-- Context: The product notes describe a broad multi-phase system, but the repo is greenfield and currently contains only the notes.
-- Decision: Scope the first implementation task to the notes' Phase 1 "Voice Analyst" vertical slice while preserving extension points for later phases.
-- Alternatives: Plan the full graph, sub-agent, and dashboard platform at once; treat the task as documentation-only with no concrete implementation boundary.
-- Revisit when: Phase 1 is working end to end and the repo is ready to begin persistent memory or research fan-out work.
+- Context: The previous `dev/` artifacts described a greenfield implementation plan that no longer matches the repository.
+- Decision: Rewrite the `dev/` packet as a current-state architecture and documentation refresh grounded in the working tree.
+- Alternatives: Preserve the old forward-looking plan; leave `dev/` as a stale historical artifact set.
+- Revisit when: The team explicitly wants `dev/` to become a forward design workspace again instead of a current-state architecture packet.
 
-## D2: The implementation path is pure TypeScript
+## D2: Browser-owned Gemini Live sessions are the current implementation truth
 - When: 2026-04-11
-- Context: The original planning pass assumed Rust services and shared code, but the implementation direction has now changed.
-- Decision: Build the first milestone entirely in TypeScript and remove Rust, crates, and WASM from the current task scope.
-- Alternatives: Keep the mixed Rust plus TypeScript design; use Rust only for selected performance-sensitive paths.
-- Revisit when: Real performance data or deployment constraints show that TypeScript cannot support the required user experience.
+- Context: The code in `src/lib/live-session.ts` and `src/app/page.tsx` shows that the browser fetches an ephemeral token and opens the Gemini Live session directly.
+- Decision: Document browser-owned live session management as the active architecture, with the API serving as token broker and config source.
+- Alternatives: Describe the architecture as backend-owned or leave session ownership ambiguous.
+- Revisit when: Session ownership moves behind the server or a second runtime surface becomes authoritative.
 
-## D3: Repo-local hooks remain disabled
+## D3: The Hono API is intentionally thin
 - When: 2026-04-11
-- Context: The context-engineering skill expects a repo-hooks decision, but the current Codex harness on Windows does not support repo-local hooks cleanly.
-- Decision: Record hooks as disabled for this task and keep the workflow manual.
-- Alternatives: Pretend hooks are enabled; attempt to enforce unsupported repo-local hook behavior.
-- Revisit when: The project is worked on from a harness/platform that supports repo-local Codex hooks.
+- Context: `src/server/index.ts` currently handles CORS, health/config/token endpoints, fixtures, validation, and deterministic analysis requests.
+- Decision: Document the backend as a thin API boundary rather than implying a larger implemented orchestration service.
+- Alternatives: Describe the server as if multi-agent orchestration, connector fan-out, or graph services already exist.
+- Revisit when: The server gains materially broader responsibilities than the current endpoints support.
 
-## D4: Manual artifact creation instead of `ce init`
+## D4: Deterministic analysis helpers are part of the present architecture
 - When: 2026-04-11
-- Context: The skill workflow recommends `ce init`, but local PowerShell execution policy and the Git Bash bridge failed during initialization in this environment.
-- Decision: Create the phase artifacts manually in the skill's format for this planning pass.
-- Alternatives: Block the task on local `ce` initialization; invent a different artifact structure.
-- Revisit when: The `ce` tooling can run successfully in this repo and the workflow can be migrated onto generated task scaffolding.
+- Context: `src/core/index.ts` contains the shared analysis models, deterministic analysis logic, fixture requests, and fixture assertions used by `/analyze`, `/fixtures`, and `/validate`.
+- Decision: Treat the deterministic local analysis path as an intentional current capability and document it explicitly.
+- Alternatives: Omit it from the architecture docs; describe it as if all analysis currently runs through Gemini Live.
+- Revisit when: Deterministic analysis is removed, replaced, or substantially expanded into a richer structured backend analysis layer.
 
-## D5: Gemini Live reference is the primary runtime architecture source
+## D5: Product docs remain roadmap context, not implementation authority
 - When: 2026-04-11
-- Context: The repo now includes `dev/geminilive-reference.md`, which contains concrete implementation guidance for the live session loop, audio pipeline, tool registry, and async orchestration boundary.
-- Decision: Use that reference as the architectural baseline for the first TypeScript implementation pass.
-- Alternatives: Infer a fresh runtime design from the product notes alone; overfit the architecture to speculative later-phase capabilities.
-- Revisit when: Implementation reveals a mismatch between the reference patterns and Verity's actual product needs.
+- Context: `notes.md` and `docs/PDR.md` still describe a broader Verity vision including extensions, graph persistence, richer research, dashboards, and multi-agent systems that are not implemented in the working tree.
+- Decision: Use those files as future-direction context only and keep present-tense implementation claims grounded in current source files.
+- Alternatives: Blend roadmap material into current-state docs without labeling the distinction.
+- Revisit when: The implementation catches up to those roadmap concepts or the product-direction docs are themselves rewritten to match the shipped system.
