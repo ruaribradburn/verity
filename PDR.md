@@ -1,4 +1,4 @@
-# Product Requirements Document (PRD)
+# Product Design / Requirements Document (PDR)
 
 ## Product Name: Real-Time Multimodal Intelligence Agent
 
@@ -22,6 +22,16 @@ Enable users to think critically while consuming information by transforming pas
 * Policy professionals
 * Curious general users
 
+## 1.4 Multi-Agent Product Position
+
+Verity is a **multi-agent system**: specialized agents run in parallel, exchange structured findings with each other (not only with a single monolithic model), and converge on a **single user-facing result** that is fast to deliver and grounded in explicit verification steps.
+
+**What we optimize for**
+
+* **Coordination**: Clear handoffs (claims → verification → graph update → synthesis) so agents do not duplicate work or contradict each other.
+* **Speed**: Parallel execution where tasks are independent; sequential steps only where dependencies require them.
+* **Quality**: Disagreement and low-confidence paths are surfaced to dedicated agents (e.g. research / fact-check) before final output.
+
 ---
 
 # 2. Problem Statement
@@ -39,13 +49,16 @@ This leads to misinformation exposure, shallow understanding, and cognitive over
 
 # 3. Solution Overview
 
-A real-time assistant that:
+A real-time assistant implemented as a **fleet of cooperating agents** that:
 
 * Ingests web content (text, audio, visual)
-* Extracts entities and builds a knowledge graph
-* Analyzes bias and credibility
-* Runs parallel verification research
+* Extracts entities and builds a knowledge graph (dedicated extraction + graph agents)
+* Analyzes bias and credibility (analysis agents with shared schemas for claims and scores)
+* Runs **parallel verification and research agents** that share intermediate results (e.g. disputed claims, sources) via the orchestrator or a shared working memory
+* **Synthesizes** a unified response through an output agent that respects traceability back to each agent’s contribution
 * Presents structured insights via a conversational interface
+
+**User-visible outcome**: one coherent answer with clear sections (summary, checks, entities, gaps, recommendations), produced quickly because work is split and pipelined across agents.
 
 ---
 
@@ -108,19 +121,31 @@ A real-time assistant that:
   * Citation quality
 * Outputs confidence score
 
-## 4.6 Parallel Research Agents
+## 4.6 Multi-Agent Orchestration & Inter-Agent Communication
+
+* **Orchestrator** (or supervisor): routes content and sub-tasks to the right agents, merges structured outputs, enforces timeouts and fallbacks, and triggers parallel work when safe.
+* **Shared context**: agents read/write a **common representation** of the current analysis (e.g. extracted claims, entity IDs, confidence flags, open questions) so they **talk to each other through data**, not ad-hoc prose.
+* **Message patterns**:
+
+  * Request/response: e.g. “verify these claims” → research agents return evidence bundles.
+  * Publish/subscribe style updates: graph agent consumes new entities from NER; scoring agents consume graph + source metadata.
+  * Escalation: when bias/credibility scores conflict or confidence is low, orchestrator spawns or prioritizes verification agents before synthesis.
+
+## 4.7 Parallel Research Agents
 
 * Trigger conditions:
 
   * Low confidence
   * High-impact claims
+  * Orchestrator-detected contradictions between agents
 * Capabilities:
 
   * Cross-source verification
   * Opposing viewpoint retrieval
   * Fact checking
+* **Interoperability**: research agents accept **structured claim lists** from analysis agents and return **citable findings** for the output/synthesis agent.
 
-## 4.7 Gap Detection
+## 4.8 Gap Detection
 
 * Identifies:
 
@@ -128,7 +153,7 @@ A real-time assistant that:
   * Missing data
   * Alternative narratives
 
-## 4.8 Intelligence Dashboard
+## 4.9 Intelligence Dashboard
 
 * Persistent memory layer
 * Tracks:
@@ -138,7 +163,7 @@ A real-time assistant that:
   * Bias patterns
   * User interests
 
-## 4.9 Voice-First Output
+## 4.10 Voice-First Output
 
 * Concise spoken summaries
 * Structured explanation format
@@ -167,6 +192,12 @@ A real-time assistant that:
 5. Missing Context
 6. Recommendations
 
+## 5.4 Multi-Agent User Experience
+
+* Users receive **one** primary response assembled by the synthesis agent (not a separate chat per agent).
+* **Speed**: where helpful, show a short initial summary or loading state while verification agents finish, without blocking the entire UI on the slowest agent unless the claim is high-impact.
+* **Trust**: later phases may expose “why this section” or per-agent contributions without overwhelming the default view.
+
 ---
 
 # 6. System Architecture
@@ -174,21 +205,36 @@ A real-time assistant that:
 ## 6.1 High-Level Components
 
 1. Ingestion Layer
-2. NLP Processing Layer
-3. Knowledge Graph Service
-4. Research Agent Orchestrator
-5. Scoring Engine
-6. Output Generation Layer
-7. Frontend Interface
+2. NLP Processing Layer (NER / extraction **agents**)
+3. Knowledge Graph Service (graph **agent** + store)
+4. **Multi-Agent Orchestrator** (routing, parallelism, merge, escalation)
+5. Analysis **agents** (bias, framing, credibility)
+6. Research / verification **agents** (parallel where possible)
+7. **Synthesis / output agent** (single user-facing narrative from structured agent outputs)
+8. Frontend Interface
 
 ## 6.2 Data Flow
 
-1. Input content
-2. Entity extraction
-3. Graph update
-4. Bias + credibility analysis
-5. Sub-agent verification
-6. Response synthesis
+1. Input content → ingestion normalizes payload for agents.
+2. Orchestrator fans out: entity extraction ∥ early claim/span detection (where applicable).
+3. Graph agent updates knowledge graph; scores propagate to shared context.
+4. Bias + credibility **analysis agents** write structured results; orchestrator detects conflicts or low confidence.
+5. Research agents run **in parallel** on independent claim bundles; results merged with source pointers.
+6. **Synthesis agent** produces one response from the shared representation (traceable to each upstream agent).
+7. User sees formatted output; optional voice layer reads the same structured result.
+
+## 6.3 Multi-Agent Roles (illustrative)
+
+| Role | Responsibility | Talks to |
+| --- | --- | --- |
+| Orchestrator | Task graph, timeouts, merge, escalation | All agents |
+| Extraction / NER | Entities, spans, disambiguation hints | Graph, analysis |
+| Graph | Nodes, edges, confidence | Scoring, synthesis |
+| Bias / credibility | Scores, rationale snippets | Orchestrator, research, synthesis |
+| Research | Evidence, corroboration, opposing views | Orchestrator, synthesis |
+| Synthesis | Final answer, sectioning, citations | User (and voice layer) |
+
+Agents **do not** each emit a separate chat stream to the user by default; the product presents **one** merged result, with optional drill-down into per-agent rationale in later phases.
 
 ---
 
@@ -205,7 +251,8 @@ A real-time assistant that:
 
 * Retrieval-Augmented Generation (RAG)
 * Graph-based reasoning
-* Multi-agent orchestration
+* **Multi-agent orchestration** with explicit handoffs and a **shared structured state** (claims, entities, scores, evidence IDs) so agents coordinate without redundant LLM calls where possible
+* Parallel tool-use and bounded concurrency for research agents to meet latency goals
 
 ---
 
@@ -218,12 +265,14 @@ A real-time assistant that:
 * Basic bias detection
 * Simple credibility scoring
 * Conversational output
+* **At least two specialized agents plus orchestration** (e.g. extraction/analysis → synthesis), with a defined shared schema for passing results—even if research agents are minimal stubs initially
 
 ## 8.2 Should Have
 
 * Knowledge graph visualization
-* Parallel research agents
+* **Full parallel research agent pool** with orchestrator-driven escalation
 * Dashboard persistence
+* **Observable agent pipeline** (debug/audit: which agent contributed what)
 
 ## 8.3 Nice to Have
 
@@ -235,10 +284,11 @@ A real-time assistant that:
 
 # 9. Non-Functional Requirements
 
-* Latency: < 2 seconds for initial response
+* Latency: < 2 seconds for **first user-visible** response where possible; orchestrator may stream partial summary while verification agents complete heavier work
+* **Multi-agent efficiency**: bounded parallelism, deduplicated retrieval, and shared state to avoid redundant work across agents
 * Scalability: handle concurrent users
 * Privacy: local-first or secure processing
-* Reliability: high uptime
+* Reliability: high uptime; graceful degradation if a sub-agent times out (orchestrator still returns partial structured result)
 
 ---
 
@@ -248,12 +298,15 @@ A real-time assistant that:
 * Bias in AI models
 * Data source reliability
 * Performance overhead in real-time analysis
+* **Multi-agent inconsistency**: without a strong shared schema and merge rules, agents may produce conflicting scores or duplicate verification; orchestrator and synthesis must resolve or surface uncertainty explicitly
 
 ---
 
 # 11. Metrics of Success
 
 * Accuracy of bias detection
+* **End-to-end latency** (ingest → final synthesized output) and **time-to-first-token** (if streaming)
+* **Orchestration quality**: rate of unnecessary escalations, agent timeout rate, merge conflicts caught before user sees output
 * User engagement time
 * Retention rate
 * Trust score from users
@@ -266,11 +319,12 @@ A real-time assistant that:
 
 * Browser extension
 * Basic analysis
+* **Orchestrator + multi-agent skeleton** (shared schema, synthesis from multiple agent outputs)
 
 ## Phase 2
 
 * Knowledge graph
-* Research agents
+* **Parallel research agents** with inter-agent claim handoff and escalation rules
 
 ## Phase 3
 
