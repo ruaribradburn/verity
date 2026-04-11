@@ -409,10 +409,8 @@ function formatStartSessionError(error: unknown) {
 function TranscriptEntryView({ entry }: { entry: TranscriptEntry }) {
   const tone =
     entry.role === "user"
-      ? "ml-auto bg-stone-950 text-stone-50"
-      : entry.role === "assistant"
-        ? "mr-auto bg-[#20160f] text-stone-100"
-        : "mx-auto bg-stone-200 text-stone-700";
+      ? "mr-auto bg-[#182435] text-[#d9e3f2]"
+      : "ml-auto bg-[#123329] text-[#e5f1ea]";
 
   const width = entry.role === "system" ? "max-w-xl" : "max-w-3xl";
 
