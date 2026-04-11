@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { spawn } from "node:child_process";
 
-type TargetName = "web" | "api";
+type TargetName = "web" | "api" | "ext";
 type ScriptName = "dev" | "build" | "start";
 
 const [, , target, script] = process.argv as [
@@ -13,7 +13,7 @@ const [, , target, script] = process.argv as [
 ];
 
 if (!target || !script || !isTarget(target) || !isScript(script)) {
-  console.error("Usage: bun scripts/run-workspace.ts <web|api> <dev|build|start>");
+  console.error("Usage: bun scripts/run-workspace.ts <web|api|ext> <dev|build|start>");
   process.exit(1);
 }
 
@@ -30,7 +30,8 @@ if (target === "api") {
   env.PORT = env.API_PORT ?? env.PORT ?? "3001";
 }
 
-const packageDir = path.join(repoRoot, "packages", target);
+const packageDirName = target === "ext" ? "extension" : target;
+const packageDir = path.join(repoRoot, "packages", packageDirName);
 
 const bunExe =
   process.execPath.toLowerCase().endsWith("bun.exe") || process.execPath.toLowerCase().endsWith("/bun")
@@ -81,7 +82,7 @@ function loadDotEnv(filePath: string) {
 }
 
 function isTarget(value: string): value is TargetName {
-  return value === "web" || value === "api";
+  return value === "web" || value === "api" || value === "ext";
 }
 
 function isScript(value: string): value is ScriptName {
