@@ -562,6 +562,8 @@ export type AnalysisContext = {
   evidenceBundles: EvidenceBundle[];
   credibilityScores: CredibilityScore[];
   language: string;
+  /** Session-scoped graph relationships (from graph agent + SQLite persistence). */
+  graphSummary?: string;
 };
 
 /** The 6-section briefing output format (PDR §5.3). */

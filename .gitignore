@@ -23,6 +23,9 @@ out/
 # production
 /build
 
+# local graph DB (SQLite)
+/data/
+
 # misc
 .DS_Store
 *.pem

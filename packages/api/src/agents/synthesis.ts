@@ -40,6 +40,10 @@ export async function runSynthesisAgent(
       .map((p) => `${p.title ?? "Untitled"} (${p.siteName ?? p.url})`)
       .join(", ");
 
+    const graphBlock = context.graphSummary?.trim()
+      ? `RELATIONSHIPS (graph, session + persistent store):\n${context.graphSummary.trim()}`
+      : "RELATIONSHIPS (graph): None recorded for this session.";
+
     const response = await ai.models.generateContent({
       model: SYNTHESIS_MODEL,
       contents: [
@@ -73,6 +77,8 @@ ${credSummary || "None computed."}
 
 EVIDENCE BUNDLES:
 ${evidenceSummary || "None assembled."}
+
+${graphBlock}
 
 Produce a briefing with these 6 sections as strict JSON:
 {
@@ -112,7 +118,11 @@ Each section should be 2-5 sentences. Be concise and analytically useful.`,
         sessionId: context.sessionId,
         agentContributions: [
           { agent: "extraction", summary: `${context.claims.length} claims, ${context.entities.length} entities` },
-          { agent: "analysis", summary: `${context.biasSignals.length} bias signals, ${context.credibilityScores.length} credibility scores` },
+          { agent: "research", summary: "Google Search grounding (server)" },
+          { agent: "bias", summary: `${context.biasSignals.length} bias signals` },
+          { agent: "credibility", summary: `${context.credibilityScores.length} credibility scores` },
+          { agent: "graph", summary: context.graphSummary?.trim() ? "Session edges persisted" : "No graph edges" },
+          { agent: "fact-check", summary: `${context.evidenceBundles.length} evidence bundles` },
           { agent: "synthesis", summary: "Produced 6-section briefing" },
         ],
         confidence: (parsed.metadata as Record<string, unknown>)?.confidence === "high"
