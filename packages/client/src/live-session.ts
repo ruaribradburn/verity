@@ -38,6 +38,12 @@ type ManagerOptions = {
   onAudioChunk?(pcm24KhzChunk: Uint8Array): void;
 };
 
+type Deferred<T> = {
+  promise: Promise<T>;
+  resolve(value: T): void;
+  reject(reason?: unknown): void;
+};
+
 type LiveSessionHandle = {
   close(): void;
   sendClientContent(payload: {
@@ -68,6 +74,27 @@ export function createLiveSessionManager(options: ManagerOptions): LiveSessionMa
   let lastError: string | null = null;
   let turnCompleteCount = 0;
 
+  function createDeferred<T>(): Deferred<T> {
+    let resolve!: (value: T) => void;
+    let reject!: (reason?: unknown) => void;
+    const promise = new Promise<T>((innerResolve, innerReject) => {
+      resolve = innerResolve;
+      reject = innerReject;
+    });
+    return { promise, resolve, reject };
+  }
+
+  async function waitForSetupComplete(setupCompletePromise: Promise<void>, timeoutMs = 10_000) {
+    await Promise.race([
+      setupCompletePromise,
+      new Promise<never>((_, reject) => {
+        window.setTimeout(() => {
+          reject(new Error("Gemini Live did not report setup completion in time."));
+        }, timeoutMs);
+      }),
+    ]);
+  }
+
   function emitSnapshot() {
     options.onSnapshot({
       state,
@@ -88,10 +115,10 @@ export function createLiveSessionManager(options: ManagerOptions): LiveSessionMa
         method: "POST",
       });
     } catch (err) {
-      console.error("[verity/live] Network error fetching token — is the API server running?", err);
+      console.error("[verity/live] Network error fetching token - is the API server running?", err);
       throw new Error(
         `Cannot reach API at ${options.apiOrigin}/live/token. From the repo root run \`bun run dev\` (starts web + API). ` +
-          `If the error persists from the Chrome extension, confirm CORS allows chrome-extension origins (packages/api enables this by default).`,
+          "If the error persists from the Chrome extension, confirm CORS allows chrome-extension origins (packages/api enables this by default).",
       );
     }
     console.log("[verity/live] Token response status:", res.status);
@@ -174,6 +201,7 @@ export function createLiveSessionManager(options: ManagerOptions): LiveSessionMa
         apiKey: token.token,
         apiVersion: GEMINI_LIVE_API_VERSION,
       });
+      const setupComplete = createDeferred<void>();
 
       session = await ai.live.connect({
         model: GEMINI_LIVE_MODEL,
@@ -216,23 +244,45 @@ export function createLiveSessionManager(options: ManagerOptions): LiveSessionMa
             emitSnapshot();
           },
           onmessage: (message) => {
+            if (message.setupComplete) {
+              console.log("[verity/live] Gemini Live setup complete");
+              setupComplete.resolve();
+            }
             queue.put(message);
           },
           onerror: (error) => {
             console.error("[verity/live] Gemini Live WebSocket error:", error.message);
             state = "error";
             lastError = error.message;
+            setupComplete.reject(error);
             emitSnapshot();
           },
-          onclose: () => {
-            console.log("[verity/live] Gemini Live WebSocket closed");
+          onclose: (event) => {
+            console.log(
+              "[verity/live] Gemini Live WebSocket closed",
+              `code=${event.code}`,
+              `reason=${event.reason || "none"}`,
+              `wasClean=${event.wasClean}`,
+            );
+            setupComplete.reject(
+              new Error(
+                `Gemini Live closed (code ${event.code}${event.reason ? `: ${event.reason}` : ""}).`,
+              ),
+            );
+            session = null;
             state = "disconnected";
+            lastError =
+              event.code === 1000 && !event.reason
+                ? null
+                : `Gemini Live disconnected (code ${event.code}${event.reason ? `: ${event.reason}` : ""}).`;
             emitSnapshot();
           },
         },
       });
 
-      console.log("[verity/live] Live session ready — state: listening");
+      await waitForSetupComplete(setupComplete.promise);
+      console.log("[verity/live] Live session ready - state: listening");
+
       if (page.contentText.trim()) {
         session.sendClientContent({
           turns: [

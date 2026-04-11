@@ -27,8 +27,8 @@ import {
 const URL_RESOLUTION_MODEL = "gemini-2.5-flash";
 const TRAFILATURA_SCRIPT_PATH = fileURLToPath(new URL("../../../scripts/trafilatura_extract.py", import.meta.url));
 
-/** macOS/Linux often have `python3` but not `python`; Windows often exposes `python`. */
-const DEFAULT_PYTHON_BIN = process.platform === "win32" ? "python" : "python3";
+/** macOS/Linux often have `python3` but not `python`; Windows may expose `py`, `python`, or `python3`. */
+const DEFAULT_PYTHON_BIN = process.platform === "win32" ? "py" : "python3";
 
 type ScreenResolution = {
   url: string | null;
@@ -182,45 +182,73 @@ async function resolvePageFromScreen(params: {
 }
 
 async function runTrafilatura(url: string): Promise<TrafilaturaResult> {
-  const python = process.env.PYTHON_BIN?.trim() || DEFAULT_PYTHON_BIN;
+  const configuredPython = process.env.PYTHON_BIN?.trim();
+  const candidates =
+    configuredPython != null && configuredPython.length > 0
+      ? [{ command: configuredPython, args: [TRAFILATURA_SCRIPT_PATH, url] }]
+      : process.platform === "win32"
+        ? [
+            { command: "py", args: ["-3", TRAFILATURA_SCRIPT_PATH, url] },
+            { command: "python", args: [TRAFILATURA_SCRIPT_PATH, url] },
+            { command: "python3", args: [TRAFILATURA_SCRIPT_PATH, url] },
+          ]
+        : [
+            { command: "python3", args: [TRAFILATURA_SCRIPT_PATH, url] },
+            { command: "python", args: [TRAFILATURA_SCRIPT_PATH, url] },
+          ];
 
-  return await new Promise<TrafilaturaResult>((resolve, reject) => {
-    const child = spawn(python, [TRAFILATURA_SCRIPT_PATH, url], {
-      stdio: ["ignore", "pipe", "pipe"],
-    });
+  let lastSpawnError: Error | null = null;
 
-    let stdout = "";
-    let stderr = "";
+  for (const candidate of candidates) {
+    try {
+      return await new Promise<TrafilaturaResult>((resolve, reject) => {
+        const child = spawn(candidate.command, candidate.args, {
+          stdio: ["ignore", "pipe", "pipe"],
+        });
 
-    child.stdout.on("data", (chunk) => {
-      stdout += String(chunk);
-    });
+        let stdout = "";
+        let stderr = "";
 
-    child.stderr.on("data", (chunk) => {
-      stderr += String(chunk);
-    });
+        child.stdout.on("data", (chunk) => {
+          stdout += String(chunk);
+        });
 
-    child.on("error", (error) => {
-      reject(error);
-    });
+        child.stderr.on("data", (chunk) => {
+          stderr += String(chunk);
+        });
 
-    child.on("close", () => {
-      try {
-        const parsed = JSON.parse(stdout || "{}") as TrafilaturaResult;
-        if ("ok" in parsed) {
-          resolve(parsed);
-          return;
-        }
-      } catch {
-        // fall through to structured error below
-      }
+        child.on("error", (error) => {
+          reject(error);
+        });
 
-      resolve({
-        ok: false,
-        error: normalizeOptionalText(stderr) ?? "Trafilatura extraction failed.",
+        child.on("close", () => {
+          try {
+            const parsed = JSON.parse(stdout || "{}") as TrafilaturaResult;
+            if ("ok" in parsed) {
+              resolve(parsed);
+              return;
+            }
+          } catch {
+            // fall through to structured error below
+          }
+
+          resolve({
+            ok: false,
+            error: normalizeOptionalText(stderr) ?? "Trafilatura extraction failed.",
+          });
+        });
       });
-    });
-  });
+    } catch (error) {
+      lastSpawnError = error instanceof Error ? error : new Error(String(error));
+    }
+  }
+
+  throw (
+    lastSpawnError ??
+    new Error(
+      `Could not find a usable Python interpreter. Tried: ${candidates.map((candidate) => candidate.command).join(", ")}`,
+    )
+  );
 }
 
 const apiPort = Number(process.env.API_PORT ?? process.env.PORT) || API_DEFAULT_PORT;
