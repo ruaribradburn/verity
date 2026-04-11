@@ -101,13 +101,14 @@ export function LiveVoiceSession({
   const playbackAudioContextRef = useRef<AudioContext | null>(null);
   const playbackCursorRef = useRef(0);
   const lastTurnCountRef = useRef(0);
-  const prevUserTranscriptRef = useRef("");
   const hasInjectedPageContextForCurrentTurnRef = useRef(false);
   const lastInjectedPageContextRef = useRef("");
   const snapshotRef = useRef<LiveSessionSnapshot>({
     state: "disconnected",
     partialUserTranscript: "",
     partialAssistantTranscript: "",
+    lastCompletedUserTranscript: "",
+    lastCompletedAssistantTranscript: "",
     resumeHandle: null,
     lastError: null,
     turnCompleteCount: 0,
@@ -119,6 +120,8 @@ export function LiveVoiceSession({
     state: "disconnected",
     partialUserTranscript: "",
     partialAssistantTranscript: "",
+    lastCompletedUserTranscript: "",
+    lastCompletedAssistantTranscript: "",
     resumeHandle: null,
     lastError: null,
     turnCompleteCount: 0,
@@ -209,12 +212,8 @@ export function LiveVoiceSession({
 
     hasInjectedPageContextForCurrentTurnRef.current = false;
     lastTurnCountRef.current = snapshot.turnCompleteCount;
-    const fullUserTranscript = snapshot.partialUserTranscript.trim();
-    const prev = prevUserTranscriptRef.current;
-    const turnText = fullUserTranscript.startsWith(prev)
-      ? fullUserTranscript.slice(prev.length).trim()
-      : fullUserTranscript;
-    prevUserTranscriptRef.current = fullUserTranscript;
+    const turnText = snapshot.lastCompletedUserTranscript.trim();
+    const assistantText = snapshot.lastCompletedAssistantTranscript.trim();
 
     setTranscript((current) => {
       const next = [...current];
@@ -226,11 +225,11 @@ export function LiveVoiceSession({
           meta: "voice",
         });
       }
-      if (snapshot.partialAssistantTranscript.trim()) {
+      if (assistantText) {
         next.push({
           id: `assistant-${snapshot.turnCompleteCount}`,
           role: "assistant",
-          text: snapshot.partialAssistantTranscript.trim(),
+          text: assistantText,
           meta: "live response",
         });
       }
@@ -239,7 +238,11 @@ export function LiveVoiceSession({
     if (turnText && onUserTurnComplete) {
       onUserTurnComplete(turnText);
     }
-  }, [snapshot.partialAssistantTranscript, snapshot.partialUserTranscript, snapshot.turnCompleteCount]);
+  }, [
+    snapshot.lastCompletedAssistantTranscript,
+    snapshot.lastCompletedUserTranscript,
+    snapshot.turnCompleteCount,
+  ]);
 
   useEffect(() => {
     return () => {

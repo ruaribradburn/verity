@@ -203,6 +203,8 @@ export default function App() {
   async function injectResearchResults(event: ResearchComplete) {
     const manager = managerRef.current;
     if (!manager || event.contexts.length === 0) return;
+    const pendingToolCall = pendingToolCallRef.current;
+    const shouldSpeakUpdate = pendingToolCall == null;
 
     const priorResponse = immediateResponseRef.current;
     const userQuery =
@@ -260,9 +262,16 @@ export default function App() {
             `Cite specific sources. Do not repeat raw text.`,
         ].join("\n");
 
-        manager.sendContext(formatted, {
-          triggerResponse: pendingToolCallRef.current == null,
-        });
+        manager.sendContext(formatted);
+        if (shouldSpeakUpdate) {
+          manager.sendRuntimeDirective(
+            buildResearchFollowupDirective({
+              query: userQuery,
+              sourceCount: event.contexts.length,
+              confidence: briefing.metadata?.confidence ?? "medium",
+            }),
+          );
+        }
 
         // Send tool response back to Gemini so it knows research is complete
         const pending = pendingToolCallRef.current;
@@ -289,17 +298,24 @@ export default function App() {
       })
       .join("\n\n");
 
-    manager.sendContext(
-      `[Verity Research — ${event.contexts.length} sources collected]\n\n` +
-        crossRef +
-        summary +
-        `\n\nGive the user a clear, unbiased analytical opinion based on ALL sources above. ` +
-        `State what the evidence supports, what it contradicts, and what remains uncertain. ` +
-        `Be direct and honest. Cite sources by number. Do not repeat raw text.`,
-      {
-        triggerResponse: pendingToolCallRef.current == null,
-      },
-    );
+    const fallbackPrompt =
+      `[Verity Research â€” ${event.contexts.length} sources collected]\n\n` +
+      crossRef +
+      summary +
+      `\n\nGive the user a clear, unbiased analytical opinion based on ALL sources above. ` +
+      `State what the evidence supports, what it contradicts, and what remains uncertain. ` +
+      `Be direct and honest. Cite sources by number. Do not repeat raw text.`;
+
+    manager.sendContext(fallbackPrompt);
+    if (shouldSpeakUpdate) {
+      manager.sendRuntimeDirective(
+        buildResearchFollowupDirective({
+          query: userQuery,
+          sourceCount: event.contexts.length,
+          confidence: "mixed",
+        }),
+      );
+    }
 
     const pending = pendingToolCallRef.current;
     if (pending && manager) {
@@ -746,6 +762,31 @@ function buildResearchActivityNotice(status: VoiceResearchStatus): LiveActivityN
   }
 
   return null;
+}
+
+function buildResearchFollowupDirective({
+  query,
+  sourceCount,
+  confidence,
+}: {
+  query: string;
+  sourceCount: number;
+  confidence: string;
+}) {
+  const queryLine = query.trim()
+    ? `The user was asking about: "${query.trim()}".`
+    : "The research relates to the user's current page and latest question.";
+
+  return [
+    `Research has completed. You have already been given the full trusted research context.`,
+    queryLine,
+    `You reviewed ${sourceCount} sources. Confidence level: ${confidence}.`,
+    `Respond to the user now in a fresh spoken update.`,
+    `Start by explicitly saying that you checked ${sourceCount} sources.`,
+    `Then explain what the evidence supports, what it contradicts, and what remains uncertain.`,
+    `Relate the findings directly to the current page and the user's concern.`,
+    `Do not ask a follow-up question unless it is strictly necessary.`,
+  ].join(" ");
 }
 
 function normalizeResearchUrl(url: string): string {

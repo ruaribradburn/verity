@@ -16,6 +16,8 @@ export type LiveSessionSnapshot = {
   state: SessionState;
   partialUserTranscript: string;
   partialAssistantTranscript: string;
+  lastCompletedUserTranscript: string;
+  lastCompletedAssistantTranscript: string;
   resumeHandle: string | null;
   lastError: string | null;
   turnCompleteCount: number;
@@ -25,6 +27,8 @@ export type LiveSessionSnapshot = {
 export type LiveSessionManager = {
   connect(page: PageContext): Promise<void>;
   sendText(text: string): void;
+  /** Sends a runtime directive that should immediately trigger a model response without appearing as a typed user turn in the UI. */
+  sendRuntimeDirective(text: string): void;
   /** Injects background context (e.g. research results) without ending the user turn. */
   sendContext(text: string, options?: { triggerResponse?: boolean }): void;
   /** Send a function response back to Gemini after handling a tool call. */
@@ -102,6 +106,8 @@ export function createLiveSessionManager(options: ManagerOptions): LiveSessionMa
   let state: SessionState = "disconnected";
   let partialUserTranscript = "";
   let partialAssistantTranscript = "";
+  let lastCompletedUserTranscript = "";
+  let lastCompletedAssistantTranscript = "";
   let lastError: string | null = null;
   let turnCompleteCount = 0;
 
@@ -131,6 +137,8 @@ export function createLiveSessionManager(options: ManagerOptions): LiveSessionMa
       state,
       partialUserTranscript,
       partialAssistantTranscript,
+      lastCompletedUserTranscript,
+      lastCompletedAssistantTranscript,
       resumeHandle,
       lastError,
       turnCompleteCount,
@@ -206,6 +214,10 @@ export function createLiveSessionManager(options: ManagerOptions): LiveSessionMa
       }
 
       if (msg.serverContent?.turnComplete) {
+        lastCompletedUserTranscript = partialUserTranscript.trim();
+        lastCompletedAssistantTranscript = partialAssistantTranscript.trim();
+        partialUserTranscript = "";
+        partialAssistantTranscript = "";
         state = "listening";
         turnCompleteCount += 1;
       }
@@ -237,6 +249,8 @@ export function createLiveSessionManager(options: ManagerOptions): LiveSessionMa
       state = "connecting";
       partialUserTranscript = "";
       partialAssistantTranscript = "";
+      lastCompletedUserTranscript = "";
+      lastCompletedAssistantTranscript = "";
       lastError = null;
       emitSnapshot();
 
@@ -377,6 +391,20 @@ export function createLiveSessionManager(options: ManagerOptions): LiveSessionMa
       emitSnapshot();
     },
 
+    sendRuntimeDirective(text) {
+      if (!session) {
+        throw new Error("Live session is not connected.");
+      }
+      debugLog("[verity/live] sendRealtimeInput:directive", {
+        length: text.length,
+        preview: text.slice(0, 160),
+      });
+      state = "processing";
+      partialAssistantTranscript = "";
+      session.sendRealtimeInput({ text });
+      emitSnapshot();
+    },
+
     sendContext(text, options) {
       if (!session) {
         throw new Error("Live session is not connected.");
@@ -481,6 +509,8 @@ export function createLiveSessionManager(options: ManagerOptions): LiveSessionMa
         state,
         partialUserTranscript,
         partialAssistantTranscript,
+        lastCompletedUserTranscript,
+        lastCompletedAssistantTranscript,
         resumeHandle,
         lastError,
         turnCompleteCount,

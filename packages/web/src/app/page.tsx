@@ -50,6 +50,8 @@ export default function Home() {
     state: "disconnected",
     partialUserTranscript: "",
     partialAssistantTranscript: "",
+    lastCompletedUserTranscript: "",
+    lastCompletedAssistantTranscript: "",
     resumeHandle: null,
     lastError: null,
     turnCompleteCount: 0,
@@ -88,27 +90,33 @@ export default function Home() {
     }
 
     lastTurnCountRef.current = snapshot.turnCompleteCount;
+    const completedUserTranscript = snapshot.lastCompletedUserTranscript.trim();
+    const completedAssistantTranscript = snapshot.lastCompletedAssistantTranscript.trim();
     setTranscript((current) => {
       const next = [...current];
-      if (snapshot.partialUserTranscript.trim()) {
+      if (completedUserTranscript) {
         next.push({
           id: `user-${snapshot.turnCompleteCount}`,
           role: "user",
-          text: snapshot.partialUserTranscript.trim(),
+          text: completedUserTranscript,
           meta: "voice",
         });
       }
-      if (snapshot.partialAssistantTranscript.trim()) {
+      if (completedAssistantTranscript) {
         next.push({
           id: `assistant-${snapshot.turnCompleteCount}`,
           role: "assistant",
-          text: snapshot.partialAssistantTranscript.trim(),
+          text: completedAssistantTranscript,
           meta: "live response",
         });
       }
       return next;
     });
-  }, [snapshot.partialAssistantTranscript, snapshot.partialUserTranscript, snapshot.turnCompleteCount]);
+  }, [
+    snapshot.lastCompletedAssistantTranscript,
+    snapshot.lastCompletedUserTranscript,
+    snapshot.turnCompleteCount,
+  ]);
 
   useEffect(() => {
     return () => {
