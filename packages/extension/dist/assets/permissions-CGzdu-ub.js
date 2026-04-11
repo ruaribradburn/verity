@@ -1,0 +1,7 @@
+import{c as o,r as d}from"./permissions-check-Dh5Je-wn.js";const c=document.getElementById("perm-list"),a=document.getElementById("grant"),l=document.getElementById("refresh"),e=document.getElementById("status");async function r(){const t=await o();c.innerHTML="";for(const s of t.items){const n=document.createElement("li");n.className="perm-item",n.innerHTML=`
+      <div class="perm-dot ${s.granted?"granted":"pending"}"></div>
+      <div>
+        <div class="perm-name">${s.label}</div>
+        <div class="perm-desc">${s.description}</div>
+      </div>
+    `,c.appendChild(n)}t.allGranted&&(e.textContent="All permissions granted. You can close this tab.",e.className="status success",a.disabled=!0,chrome.runtime.sendMessage({type:"verity:mic-granted"}).catch(()=>{}),setTimeout(()=>window.close(),1500))}a.addEventListener("click",async()=>{a.disabled=!0,e.textContent="Requesting permissions...",e.className="status";try{const t=await o(),s=await d(t);if(s.allGranted)e.textContent="All permissions granted. You can close this tab.",e.className="status success",chrome.runtime.sendMessage({type:"verity:mic-granted"}).catch(()=>{}),setTimeout(()=>window.close(),1500);else{const n=s.items.filter(i=>!i.granted);e.textContent=`Still missing: ${n.map(i=>i.label).join(", ")}. Check your Chrome settings.`,e.className="status error",a.disabled=!1}await r()}catch(t){e.textContent=t instanceof Error?t.message:"Something went wrong.",e.className="status error",a.disabled=!1}});l.addEventListener("click",()=>r());r();

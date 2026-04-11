@@ -22,9 +22,8 @@
         border: 1px solid rgba(0,0,0,0.08);
         box-shadow: 0 18px 60px rgba(0,0,0,0.06);
         padding: 2.5rem;
-        max-width: 460px;
+        max-width: 520px;
         width: 100%;
-        text-align: center;
       }
       .label {
         font-size: 0.7rem;
@@ -45,6 +44,40 @@
         color: #57534e;
         margin-bottom: 1.5rem;
       }
+      .perm-list {
+        list-style: none;
+        margin-bottom: 1.5rem;
+      }
+      .perm-item {
+        display: flex;
+        align-items: flex-start;
+        gap: 0.75rem;
+        padding: 0.75rem 1rem;
+        border-radius: 1rem;
+        border: 1px solid #e7e5e4;
+        background: #fafaf9;
+        margin-bottom: 0.5rem;
+      }
+      .perm-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        margin-top: 5px;
+        flex-shrink: 0;
+      }
+      .perm-dot.pending { background: #f59e0b; }
+      .perm-dot.granted { background: #22c55e; }
+      .perm-name {
+        font-size: 0.85rem;
+        font-weight: 500;
+        color: #1c1917;
+      }
+      .perm-desc {
+        font-size: 0.75rem;
+        color: #78716c;
+        margin-top: 2px;
+      }
+      .actions { display: flex; gap: 0.75rem; }
       button {
         font: inherit;
         background: #0c0a09;
@@ -56,29 +89,46 @@
         font-weight: 500;
         cursor: pointer;
         transition: background 0.15s;
+        flex: 1;
       }
       button:hover { background: #b45309; }
       button:disabled { opacity: 0.5; cursor: default; }
+      button.secondary {
+        background: white;
+        color: #44403c;
+        border: 1px solid #d6d3d1;
+        flex: none;
+      }
+      button.secondary:hover { border-color: #0c0a09; color: #0c0a09; background: white; }
       .status {
         margin-top: 1.25rem;
         font-size: 0.8rem;
         color: #57534e;
+        text-align: center;
       }
       .status.success { color: #15803d; }
       .status.error { color: #b91c1c; }
     </style>
-    <script type="module" crossorigin src="./assets/permissions-ZTcQYSNE.js"></script>
-    <link rel="modulepreload" crossorigin href="./assets/modulepreload-polyfill-B5Qt9EMX.js">
+    <script type="module" crossorigin src="./assets/permissions-CGzdu-ub.js"></script>
+    <link rel="modulepreload" crossorigin href="./assets/permissions-check-Dh5Je-wn.js">
   </head>
   <body>
     <div class="card">
       <div class="label">Verity permissions</div>
-      <h1>Live capture access</h1>
+      <h1>Grant all permissions</h1>
       <p>
-        Verity Live uses your <strong>microphone</strong> and <strong>screen</strong> (from the side panel when you start a session).
-        This page primes <strong>microphone</strong> access for the extension. Click below and <strong>Allow</strong> when Chrome asks.
+        Verity needs <strong>microphone</strong> access for voice input,
+        <strong>tab</strong> access for page research, and
+        <strong>local API</strong> access to communicate with the Verity backend.
+        Grant everything below, then return to the side panel.
       </p>
-      <button id="grant">Grant microphone access</button>
+
+      <ul class="perm-list" id="perm-list"></ul>
+
+      <div class="actions">
+        <button id="grant">Grant all permissions</button>
+        <button class="secondary" id="refresh">Refresh</button>
+      </div>
       <div id="status" class="status"></div>
     </div>
   </body>
