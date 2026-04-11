@@ -35,6 +35,8 @@ export type LiveVoiceSessionProps = {
   onUserTurnComplete?: (text: string) => void;
   /** Called with the live session manager once connected, so the host can inject context. */
   onManagerReady?: (manager: LiveSessionManager) => void;
+  /** Optional inline agent-style card rendered directly inside the transcript flow. */
+  inlineCard?: LiveInlineCard | null;
 };
 
 type TranscriptEntry = {
@@ -42,6 +44,19 @@ type TranscriptEntry = {
   role: "system" | "user" | "assistant";
   text: string;
   meta?: string;
+};
+
+export type LiveInlineCard = {
+  id: string;
+  label: string;
+  title: string;
+  status: string;
+  query?: string;
+  tone?: "active" | "success" | "error";
+  pagesRead?: number;
+  totalPages?: number;
+  metrics?: Array<{ label: string; value: string }>;
+  items?: string[];
 };
 
 const INITIAL_PAGE: PageContext = {
@@ -61,6 +76,7 @@ export function LiveVoiceSession({
   prepareLiveMediaCapture,
   onUserTurnComplete,
   onManagerReady,
+  inlineCard,
 }: LiveVoiceSessionProps) {
   const base = apiOrigin.replace(/\/$/, "");
 
@@ -381,6 +397,8 @@ export function LiveVoiceSession({
                 <TranscriptEntryView key={entry.id} entry={entry} />
               ))}
 
+              {inlineCard ? <InlineTranscriptCard key={inlineCard.id} card={inlineCard} /> : null}
+
               {snapshot.partialUserTranscript.trim() ? (
                 <TranscriptEntryView
                   entry={{
@@ -594,6 +612,101 @@ function TranscriptEntryView({ entry }: { entry: TranscriptEntry }) {
       </div>
       {entry.role !== "system" || isOpen ? (
         <p className="mt-2 whitespace-pre-wrap text-[12px] leading-6">{entry.text}</p>
+      ) : null}
+    </article>
+  );
+}
+
+function InlineTranscriptCard({ card }: { card: LiveInlineCard }) {
+  const tone =
+    card.tone === "success"
+      ? {
+          border: "border-[#33594e]",
+          bg: "bg-[linear-gradient(180deg,rgba(12,38,32,0.96),rgba(9,25,22,0.98))]",
+          label: "text-[#8db7a6]",
+          title: "text-[#e5f1ea]",
+          body: "text-[#abc5ba]",
+          track: "bg-[#163028]",
+          fill: "bg-[#5e8f7d]",
+          item: "border-[#26453c] bg-[rgba(15,42,35,0.7)] text-[#c7dcd4]",
+        }
+      : card.tone === "error"
+        ? {
+            border: "border-[#6f4740]",
+            bg: "bg-[linear-gradient(180deg,rgba(40,20,18,0.96),rgba(27,12,11,0.98))]",
+            label: "text-[#c8958c]",
+            title: "text-[#f0d8d2]",
+            body: "text-[#d7afa8]",
+            track: "bg-[#311816]",
+            fill: "bg-[#a8675c]",
+            item: "border-[#5d3934] bg-[rgba(45,21,19,0.7)] text-[#ebcec8]",
+          }
+        : {
+            border: "border-[#4a5640]",
+            bg: "bg-[linear-gradient(180deg,rgba(31,33,17,0.96),rgba(18,20,10,0.98))]",
+            label: "text-[#b7b18b]",
+            title: "text-[#f1eedf]",
+            body: "text-[#c9c19f]",
+            track: "bg-[#282613]",
+            fill: "bg-[#b0a36a]",
+            item: "border-[#59532d] bg-[rgba(33,31,15,0.72)] text-[#ece3b8]",
+          };
+
+  const progress =
+    card.totalPages && card.totalPages > 0
+      ? Math.max(6, Math.min(100, Math.round((card.pagesRead ?? 0) / card.totalPages * 100)))
+      : null;
+
+  return (
+    <article
+      className={`mr-auto max-w-3xl border px-4 py-4 shadow-[0_12px_32px_rgba(0,0,0,0.22)] ${tone.border} ${tone.bg}`}
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <p className={`font-mono text-[10px] uppercase tracking-[0.14em] ${tone.label}`}>{card.label}</p>
+          <h3 className={`mt-1 text-[13px] font-medium ${tone.title}`}>{card.title}</h3>
+          <p className={`mt-1 text-[11px] leading-5 ${tone.body}`}>{card.status}</p>
+        </div>
+        {card.metrics?.length ? (
+          <div className="flex flex-wrap justify-end gap-2">
+            {card.metrics.map((metric) => (
+              <span
+                key={metric.label}
+                className={`inline-flex h-8 items-center border px-2.5 font-mono text-[10px] ${tone.item}`}
+              >
+                {metric.label}: {metric.value}
+              </span>
+            ))}
+          </div>
+        ) : null}
+      </div>
+
+      {card.query ? (
+        <div className={`mt-3 border px-3 py-2 ${tone.item}`}>
+          <p className="font-mono text-[10px] uppercase tracking-[0.12em] opacity-70">Prompt</p>
+          <p className="mt-1 text-[12px] leading-6">{card.query}</p>
+        </div>
+      ) : null}
+
+      {progress !== null ? (
+        <div className="mt-3">
+          <div className={`h-1.5 overflow-hidden ${tone.track}`}>
+            <div className={`h-full transition-all duration-300 ${tone.fill}`} style={{ width: `${progress}%` }} />
+          </div>
+        </div>
+      ) : null}
+
+      {card.items?.length ? (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {card.items.map((item, index) => (
+            <span
+              key={`${card.id}-${index}-${item}`}
+              className={`inline-flex items-center border px-2.5 py-1.5 text-[11px] ${tone.item}`}
+            >
+              {item}
+            </span>
+          ))}
+        </div>
       ) : null}
     </article>
   );

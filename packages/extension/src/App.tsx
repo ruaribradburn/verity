@@ -1,4 +1,4 @@
-import { LiveVoiceSession, type LiveSessionManager } from "@packages/client";
+import { LiveVoiceSession, type LiveInlineCard, type LiveSessionManager } from "@packages/client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ensureLiveSessionMediaPolicy } from "./media-permissions";
 import type { ResearchEvent, ResearchComplete } from "./research/types";
@@ -8,8 +8,23 @@ const apiOrigin =
 
 type VoiceResearchStatus =
   | { phase: "idle" }
-  | { phase: "researching"; query: string; pagesRead: number; totalPages: number; status: string }
-  | { phase: "done"; query: string; pageCount: number };
+  | {
+      phase: "researching";
+      query: string;
+      pagesRead: number;
+      totalPages: number;
+      status: string;
+      recentSources: string[];
+    }
+  | {
+      phase: "done";
+      query: string;
+      pageCount: number;
+      failed: number;
+      durationMs: number;
+      recentSources: string[];
+    }
+  | { phase: "error"; query: string; error: string };
 
 export default function App() {
   const [tabHint, setTabHint] = useState<{ url: string; title: string } | null>(null);
@@ -44,22 +59,46 @@ export default function App() {
               : prev,
           );
           break;
+        case "research:page-done":
+          setVoiceResearch((prev) =>
+            prev.phase === "researching"
+              ? {
+                  ...prev,
+                  recentSources: dedupeRecentSources([
+                    ...prev.recentSources,
+                    formatResearchSourceLabel(message.context.title, message.context.siteName ?? message.context.url),
+                  ]),
+                }
+              : prev,
+          );
+          break;
 
         case "research:complete":
           injectResearchResults(message);
           setVoiceResearch((prev) =>
             prev.phase === "researching"
-              ? { phase: "done", query: prev.query, pageCount: message.contexts.length }
+              ? {
+                  phase: "done",
+                  query: prev.query,
+                  pageCount: message.contexts.length,
+                  failed: message.stats.failed,
+                  durationMs: message.stats.durationMs,
+                  recentSources: dedupeRecentSources(
+                    message.contexts.map((ctx) =>
+                      formatResearchSourceLabel(ctx.title, ctx.siteName ?? ctx.url),
+                    ),
+                  ),
+                }
               : prev,
           );
-          // Auto-clear the "done" badge after a few seconds.
-          setTimeout(() => {
-            setVoiceResearch((prev) => (prev.phase === "done" ? { phase: "idle" } : prev));
-          }, 5000);
           break;
 
         case "research:error":
-          setVoiceResearch({ phase: "idle" });
+          setVoiceResearch((prev) =>
+            prev.phase === "researching"
+              ? { phase: "error", query: prev.query, error: message.error }
+              : { phase: "error", query: "", error: message.error },
+          );
           break;
       }
     }
@@ -99,6 +138,7 @@ export default function App() {
       pagesRead: 0,
       totalPages: 0,
       status: "Starting research...",
+      recentSources: [],
     });
 
     chrome.runtime.sendMessage({
@@ -112,47 +152,10 @@ export default function App() {
     managerRef.current = manager;
   }, []);
 
+  const researchInlineCard = buildResearchInlineCard(voiceResearch);
+
   return (
-    <div className="flex flex-col gap-4 p-3">
-      {/* Voice-triggered research status indicator */}
-      {voiceResearch.phase === "researching" && (
-        <div className="rounded-xl border border-amber-700/30 bg-amber-950/40 px-4 py-3">
-          <div className="flex items-center gap-2">
-            <div className="h-2 w-2 animate-pulse rounded-full bg-amber-500" />
-            <p className="text-xs font-medium text-amber-300">Researching in background</p>
-          </div>
-          <p className="mt-1 text-[11px] text-amber-400/80 line-clamp-1">
-            &ldquo;{voiceResearch.query}&rdquo;
-          </p>
-          {voiceResearch.totalPages > 0 && (
-            <div className="mt-2">
-              <div className="h-1.5 overflow-hidden rounded-full bg-amber-900/50">
-                <div
-                  className="h-full rounded-full bg-amber-500 transition-all duration-300"
-                  style={{
-                    width: `${Math.round((voiceResearch.pagesRead / voiceResearch.totalPages) * 100)}%`,
-                  }}
-                />
-              </div>
-              <p className="mt-1 text-[10px] text-amber-500/70">
-                {voiceResearch.pagesRead} / {voiceResearch.totalPages} pages &middot; {voiceResearch.status}
-              </p>
-            </div>
-          )}
-        </div>
-      )}
-
-      {voiceResearch.phase === "done" && (
-        <div className="rounded-xl border border-emerald-700/30 bg-emerald-950/40 px-4 py-2.5">
-          <div className="flex items-center gap-2">
-            <div className="h-2 w-2 rounded-full bg-emerald-500" />
-            <p className="text-xs text-emerald-300">
-              Research complete &middot; {voiceResearch.pageCount} sources injected into session
-            </p>
-          </div>
-        </div>
-      )}
-
+    <div className="flex flex-col p-3">
       <LiveVoiceSession
         apiOrigin={apiOrigin}
         initialPageUrl={tabHint?.url}
@@ -160,7 +163,73 @@ export default function App() {
         prepareLiveMediaCapture={ensureLiveSessionMediaPolicy}
         onUserTurnComplete={handleUserTurnComplete}
         onManagerReady={handleManagerReady}
+        inlineCard={researchInlineCard}
       />
     </div>
   );
+}
+
+function buildResearchInlineCard(status: VoiceResearchStatus): LiveInlineCard | null {
+  if (status.phase === "idle") {
+    return null;
+  }
+
+  if (status.phase === "researching") {
+    return {
+      id: "autonomous-research",
+      label: "Agent activity",
+      title: "Autonomous research running",
+      status:
+        status.totalPages > 0
+          ? `${status.pagesRead}/${status.totalPages} pages reviewed. ${status.status}`
+          : status.status,
+      query: status.query,
+      tone: "active",
+      pagesRead: status.pagesRead,
+      totalPages: status.totalPages,
+      metrics: [
+        { label: "mode", value: "research" },
+        { label: "state", value: "running" },
+      ],
+      items: status.recentSources,
+    };
+  }
+
+  if (status.phase === "done") {
+    return {
+      id: "autonomous-research",
+      label: "Agent activity",
+      title: "Research injected into the session",
+      status: `${status.pageCount} sources collected in ${(status.durationMs / 1000).toFixed(1)}s${status.failed > 0 ? `, ${status.failed} failed` : ""}.`,
+      query: status.query,
+      tone: "success",
+      metrics: [
+        { label: "sources", value: String(status.pageCount) },
+        { label: "state", value: "complete" },
+      ],
+      items: status.recentSources,
+    };
+  }
+
+  return {
+    id: "autonomous-research",
+    label: "Agent activity",
+    title: "Research failed",
+    status: status.error,
+    query: status.query || undefined,
+    tone: "error",
+    metrics: [
+      { label: "mode", value: "research" },
+      { label: "state", value: "error" },
+    ],
+  };
+}
+
+function dedupeRecentSources(items: string[]) {
+  return [...new Set(items.filter(Boolean))].slice(-4);
+}
+
+function formatResearchSourceLabel(title: string | null | undefined, source: string) {
+  const compactTitle = title?.trim() || "Untitled";
+  return `${compactTitle} / ${source}`;
 }
