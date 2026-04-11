@@ -1,7 +1,6 @@
 {
   "compilerOptions": {
-    "target": "ES2017",
-    "lib": ["ES2020"],
+    "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "bundler",
     "strict": true,
@@ -9,5 +8,6 @@
     "noEmit": true,
     "isolatedModules": true
   },
-  "include": ["src/**/*.ts"]
+  "include": ["scripts/**/*.ts"],
+  "exclude": ["node_modules", "packages"]
 }

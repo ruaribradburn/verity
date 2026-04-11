@@ -1,144 +1,94 @@
-# Plan: verity-phase-1-voice-analyst-ts
+# Plan: refresh-dev-docs-to-current-architecture
 
 ## Overview
-Implement a narrow end-to-end Phase 1 slice: browser page capture feeds a TypeScript Gemini Live session layer that returns grounded analysis responses shaped by explicit epistemic guardrails. Keep the runtime path small, use the queue-driven live loop and tool patterns from `dev/geminilive-reference.md`, and reserve graph, fan-out, and dashboard capabilities for later phases through shared types and module boundaries rather than premature implementation.
+Refresh the `dev/` workflow artifacts so they serve as an accurate current-state architecture packet. Replace the stale greenfield implementation plan with documentation centered on the implemented TypeScript repo, browser-owned Gemini Live session loop, thin Hono API, deterministic analysis helpers, and explicit separation between present code and future product direction.
 
 ## Traceability
 
 | Scope | Spec | Plan | Test | Evidence |
 |-------|------|------|------|----------|
-| A1 | R5 | T1, T2 | Workspace structure check | - |
-| A2 | R1, R2, R3 | T2, T3, T4 | Page-context fixture, end-to-end session smoke test | - |
-| A3 | R4 | T4, T5 | Response fixture tests | - |
-| A4 | R5, R6, R7 | T1, T2, T5 | Module boundary review | - |
-| A5 | R6, R7, R8 | T1, T5, T6 | Clean-start bootstrap walkthrough | - |
+| A1 | R1, R6 | T1, T2 | Working-tree comparison | E1 |
+| A2 | R2, R3 | T2, T3 | Live-flow source comparison | E2 |
+| A3 | R4, R6 | T2, T4 | Core/API source comparison | E3 |
+| A4 | R5 | T3, T4 | Product-doc comparison | E4 |
+| A5 | R7 | T1 | Scope/plan write-set review | E5 |
 
 ## Allowed Write Set
-- `0_SCOPE.md`
-- `1_REFERENCE.md`
-- `2_ANALYSIS.md`
-- `3_SPEC.md`
-- `4_PLAN.md`
-- `DECISIONS.md`
-- `package.json`
-- `tsconfig.json`
-- `src/`
-- `extension/`
-- `dashboard/`
-- `server/`
-- `shared/`
-- `.gitignore`
-- `README.md`
+- `dev/0_SCOPE.md`
+- `dev/1_REFERENCE.md`
+- `dev/2_ANALYSIS.md`
+- `dev/3_SPEC.md`
+- `dev/4_PLAN.md`
+- `dev/DECISIONS.md`
 
 ## Repo Hooks
 - Decision: disabled
 - Action: keep as-is
 
 ## Validation Loop
-- Primary validation path: run the TypeScript app locally, load the browser extension or browser client against a real article page, start a Gemini Live session, and ask a known prompt such as `What am I missing here?`.
+- Primary validation path: compare every architecture claim in the refreshed `dev/` docs against the current source files in `README.md`, `src/core/index.ts`, `src/lib/live-session.ts`, `src/app/page.tsx`, `src/server/index.ts`, `.env.example`, and `scripts/`.
 - Supporting validation:
-  - unit tests for page-context extraction and request/response models
-  - fixture-driven tests for epistemic guardrail response shaping
-  - a local smoke path that logs session start, page ingestion, prompt receipt, queue processing, and response emission
-- Guided tour:
-  - start the TypeScript app or dev server
-  - load the browser surface in developer mode
-  - open a news article
-  - activate Verity
-  - ask one analysis question
-  - confirm grounded response and visible logs
+  - ensure present-tense repo layout claims match `rg --files`
+  - ensure runtime media/auth/session flow matches the code
+  - ensure future-direction items are explicitly labeled as deferred or aspirational
 - Correction triggers:
-  - if the implementation starts depending on graph storage or dashboard work to complete the first loop
-  - if voice integration complexity blocks end-to-end validation, fall back temporarily to text input only with explicit approval rather than silently lowering the bar
-  - if provider limitations prevent grounding on realistic page payloads, stop and revisit the session architecture before layering on more code
-  - if the runtime starts mixing websocket callbacks, UI state, and tool execution without a queue boundary, stop and simplify the loop before adding features
+  - if any `dev/` file still implies a Rust, WASM, extension, dashboard, or multi-agent runtime that is not in the repo
+  - if the docs overstate backend responsibilities beyond what `src/server/index.ts` implements
+  - if the docs blur the line between deterministic local analysis and future richer orchestration
 
 ## Engineering Qualities
-- Maintainability: start with small, explicit TypeScript modules and typed request boundaries rather than a monolith with mixed browser, prompt, and transport logic.
-- Extensibility: isolate shared analysis types so later graph, sub-agent, and dashboard work can reuse them.
-- Developer-Friendliness: prioritize a simple local run path and visible logs over abstract infrastructure.
-- Interpretability: encode epistemic rules in requirements, fixtures, and tests rather than leaving them buried in prompt prose.
-- Reliability: make session and transport failures explicit with recoverable error messages and a simple observable smoke path.
-- Performance: keep the Phase 1 loop lightweight; defer heavy orchestration and persistence from the critical path.
+- Maintainability: make `dev/` a reliable architecture snapshot rather than a stale historical plan.
+- Developer-Friendliness: reduce onboarding ambiguity by aligning docs with actual file boundaries and run commands.
+- Interpretability: separate implemented architecture from product-direction intent.
+- Reliability: ground every major claim in a source file, not memory or older roadmap docs.
 
 ## Cleanup Tracking
-- Avoid adding placeholder graph, dashboard, or sub-agent modules unless they are immediately needed for compilation boundaries.
-- If debug endpoints, transcript dumps, or verbose trace logging are added for local validation, gate them behind a dev-only flag and record their removal trigger before release hardening.
-- If an early text-only fallback is approved to unblock development, record a removal trigger tied to restoring the intended voice path.
-- Avoid speculative server code if the first working slice can run safely with a client-side live session and a narrow TypeScript tool layer.
+- Remove obsolete greenfield assumptions from `dev/`.
+- Avoid copying roadmap claims from `notes.md` or `docs/PDR.md` into present-tense implementation sections.
+- Keep future-direction discussion concise and clearly labeled.
 
 ## Escalation Triggers
-- Gemini Live client capabilities differ materially from the assumptions in `notes.md` or `dev/geminilive-reference.md`.
-- The browser extension cannot reliably extract article text from target pages without a separate extraction strategy.
-- End-to-end latency or streaming complexity pushes the implementation toward a mocked or degraded experience.
-- The prompt layer cannot consistently satisfy the epistemic guardrail fixtures and needs a more structured analysis pipeline.
+- If future code changes already underway in the worktree materially conflict with the current architecture snapshot.
+- If the team wants `dev/` to continue serving as a forward-looking design workspace rather than a current-state architecture record.
 
 ## Tasks
 
-### T1: Bootstrap the TypeScript workspace foundation
-- [ ] Status: pending
-- Files: `package.json`, `tsconfig.json`, `README.md`, `.gitignore`, `src/`, `extension/`, `shared/`
+### T1: Re-scope the artifact set as a documentation refresh
+- [x] Status: completed
+- Files: `dev/0_SCOPE.md`, `dev/4_PLAN.md`
 - Depends on: -
-- Satisfies: R5, R6, R7, R8
-- Acceptance: The repo builds as a coherent TypeScript workspace with clear locations for live session code, shared types, and browser client code.
-- Scope: ~120-200 lines
+- Satisfies: R1, R7
+- Acceptance: Scope and plan define a docs-only write set and frame the task around current-state architectural alignment.
 
-### T2: Implement shared domain models and Gemini Live session contracts
-- [ ] Status: pending
-- Files: `shared/`, `src/`
+### T2: Rebuild references and analysis from current source files
+- [x] Status: completed
+- Files: `dev/1_REFERENCE.md`, `dev/2_ANALYSIS.md`
 - Depends on: T1
-- Satisfies: R1, R2, R5, R6, R7
-- Acceptance: Typed models exist for `PageContext`, analysis requests, responses, session states, tool schemas, and live session events used across the app.
-- Scope: ~150-250 lines
+- Satisfies: R1, R2, R4, R6
+- Acceptance: Reference and analysis sections point at the actual implementation files and document the concrete architecture patterns now in use.
 
-### T3: Build browser-side page capture and live session controls
-- [ ] Status: pending
-- Files: `extension/`, `src/`
-- Depends on: T1, T2
-- Satisfies: R1, R2
-- Acceptance: The browser client can extract readable page text, start a live session, and send page updates and user prompts through the queue-driven interaction layer.
-- Scope: ~250-450 lines
+### T3: Rewrite the spec around implemented live-session behavior
+- [x] Status: completed
+- Files: `dev/3_SPEC.md`
+- Depends on: T2
+- Satisfies: R2, R3, R5
+- Acceptance: The spec describes the browser-owned Gemini Live flow, runtime media path, and implemented-versus-aspirational boundary accurately.
 
-### T4: Build the TypeScript analysis session loop
-- [ ] Status: pending
-- Files: `src/`, `server/`
-- Depends on: T1, T2
-- Satisfies: R2, R3, R4, R5
-- Acceptance: The live layer accepts session events, stores active page context, processes inbound messages through a queue, invokes analysis/tool flows, and returns structured responses grounded in the current page.
-- Scope: ~300-500 lines
-
-### T5: Add epistemic guardrail fixtures and local validation
-- [ ] Status: pending
-- Files: `src/`, `shared/`, `README.md`
-- Depends on: T3, T4
-- Satisfies: R4, R6, R7, R8
-- Acceptance: Fixture-driven checks exist for calibrated language and grounded output, and the README documents a local smoke-test walkthrough.
-- Scope: ~120-220 lines
-
-### T6: Review cleanup and document deferred systems
-- [ ] Status: pending
-- Files: `README.md`, `DECISIONS.md`
-- Depends on: T5
-- Satisfies: R5, R6, R7, R8
-- Acceptance: Deferred graph, sub-agent, dashboard, and production-hardening work is documented without leaving dead placeholder code or obsolete Rust assumptions in the repo.
-- Scope: ~60-120 lines
+### T4: Record the documentation decisions implied by the current codebase
+- [x] Status: completed
+- Files: `dev/DECISIONS.md`
+- Depends on: T2
+- Satisfies: R4, R5
+- Acceptance: Key decisions explain why `dev/` now prioritizes current codebase truth over older roadmap assumptions.
 
 ## Implementation Order
-T1 -> T2 -> T3 and T4 -> T5 -> T6
+T1 -> T2 -> T3 -> T4
 
 ## Done Means
-- [ ] All acceptance criteria (A*) verified
-- [ ] Tests pass
-- [ ] Lint clean
-- [ ] Type check passes
-- [ ] Visible validation path exercised or intentionally omitted with rationale
-- [ ] Engineering-quality tradeoffs reviewed and acceptable
-- [ ] Write set compliance (no out-of-scope changes, or deviations recorded)
-- [ ] Decisions documented
-- [ ] Cleanup completed or explicitly deferred with a removal trigger
-- [ ] No hidden degraded/fallback/mock implementation was accepted without explicit approval
-- [ ] Docs updated or deferred with rationale
-- [ ] Telemetry/logging considered
-- [ ] Migration/rollback considered (if applicable)
-- [ ] Security considered (if applicable)
-- [ ] Backward compatibility considered (if applicable)
+- [x] Acceptance criteria updated to match the documentation task
+- [x] `dev/` artifacts rewritten around current code patterns
+- [x] Obsolete greenfield/Rust/extension assumptions removed from present-tense sections
+- [x] Implemented-versus-future boundary made explicit
+- [x] Write set narrowed to docs-only files
+- [x] Decisions documented
+- [x] No runtime code changed

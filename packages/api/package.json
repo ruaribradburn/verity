@@ -9,8 +9,10 @@
     "check-types": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@google/genai": "^1.48.0",
     "@hono/node-server": "^1.14.0",
     "@packages/core": "workspace:*",
+    "dotenv": "^16.4.7",
     "hono": "^4.7.0"
   },
   "devDependencies": {

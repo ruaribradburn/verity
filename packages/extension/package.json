@@ -1,28 +1,27 @@
 {
-  "name": "@packages/web",
+  "name": "@packages/extension",
   "version": "0.1.0",
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
+    "dev": "vite build --watch",
+    "build": "vite build",
     "check-types": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@google/genai": "^1.48.0",
-    "@packages/core": "workspace:*",
-    "dotenv": "^16.4.7",
-    "next": "16.2.3",
+    "@packages/client": "workspace:*",
     "react": "19.2.4",
     "react-dom": "19.2.4"
   },
   "devDependencies": {
-    "@tailwindcss/postcss": "^4",
+    "@tailwindcss/vite": "^4",
+    "@types/chrome": "^0.0.309",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@vitejs/plugin-react": "^4.3.4",
     "tailwindcss": "^4",
-    "typescript": "^5.9.3"
+    "typescript": "^5",
+    "vite": "^6.0.3"
   }
 }

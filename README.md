@@ -1,51 +1,71 @@
-Verity is a **Bun workspaces** monorepo. Shared types and domain logic live in **`packages/core`**. The **Next.js** app is **`packages/web`**; the **HTTP API** (Hono) is **`packages/api`**. **Ports and URLs are configured in the repo-root `.env`** (see `.env.example`).
+# Verity
 
-## Getting started
+Verity now uses a single top-level `src/` tree instead of the old `packages/*` layout.
 
-Install dependencies from the repo root, then start web and API together:
+## Source layout
 
-```bash
-bun install
-bun run dev
-```
+- `src/app`: Next.js UI
+- `src/lib`: browser-side Gemini Live session code
+- `src/server`: Hono API server
+- `src/core`: shared types, runtime config, and deterministic analysis helpers
+- `scripts`: dev tooling and launch helpers
 
-`bun run dev` runs **`scripts/kill-dev-ports.ts`** first: it stops anything already listening on **`WEB_PORT`** and **`API_PORT`** (from `.env`), then starts web + API. Use `bun run kill-dev-ports` alone if you only want to free those ports.
+## Run locally
 
-- Web: default **http://localhost:3000** (override with **`WEB_PORT`** in `.env`)
-- API health: default **http://127.0.0.1:3001/health** (override **`API_PORT`** / **`API_ORIGIN`**)
+1. Copy `.env.example` to `.env`.
+2. Install dependencies with `bun install`.
+3. Start the web app and API with `bun run dev`.
 
-Run only the web or API:
+Default URLs:
+
+- Web UI: `http://localhost:3000`
+- API: `http://127.0.0.1:3001`
+- Health: `http://127.0.0.1:3001/health`
+
+Run individual services if needed:
 
 ```bash
 bun run dev:web
 bun run dev:api
 ```
 
-### Environment
+## Current app shape
 
-- Copy **`.env.example`** → **`.env`** at the repo root (never commit `.env`).
-- **`WEB_PORT`** / **`API_PORT`**: must be two different ports; `bun run dev` uses **`dotenv-cli`** so both processes read the same file.
-- **`WEB_ORIGIN`**: comma-separated browser origins allowed by the API (**CORS**). No trailing slashes.
-- **`API_ORIGIN`**: base URL the Next server uses for server-side `fetch` (not `NEXT_PUBLIC_*`).
-- **`NEXT_PUBLIC_API_ORIGIN`**: only if the browser calls the API directly; omit or use a public URL in production when possible.
+The current UI is transcript-first and aimed at the real product interaction:
 
-`packages/web/next.config.mjs` loads the **repo-root** `.env` so server code and builds see the same values as the API.
+- start a Gemini Live voice session
+- share the current screen/tab
+- let Verity reason about what it is seeing
+- optionally send typed messages into the same live session
 
-Edit the home page at `packages/web/app/page.tsx`.
+## Gemini Live patterns
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+The repo is shaped around the recommended Live API patterns for `gemini-3.1-flash-live-preview`:
 
-## Learn More
+- browser clients authenticate with ephemeral tokens from `POST /live/token`
+- runtime user input goes through `sendRealtimeInput`
+- `sendClientContent` is reserved for initial history seeding
+- live sessions keep context-window compression enabled
+- audio is the primary response modality
+- tool declarations belong in the initial `live.connect()` config
 
-To learn more about Next.js, take a look at the following resources:
+The current browser session scaffold lives in `src/lib/live-session.ts`.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Validation
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```bash
+bun run check-types
+bun run lint
+bun run build
+```
 
-## Deploy on Vercel
+The API also exposes local checks at `GET /validate`.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Environment
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- `WEB_PORT`: Next.js dev server port
+- `API_PORT`: API server port
+- `WEB_ORIGIN`: comma-separated origins allowed by API CORS
+- `API_ORIGIN`: server-side API base URL for Next
+- `NEXT_PUBLIC_API_ORIGIN`: browser-visible API base URL
+- `GEMINI_API_KEY`: server-side key used to mint ephemeral tokens
