@@ -1,51 +1,91 @@
-Verity is a **Bun workspaces** monorepo. Shared types and domain logic live in **`packages/core`**. The **Next.js** app is **`packages/web`**; the **HTTP API** (Hono) is **`packages/api`**. **Ports and URLs are configured in the repo-root `.env`** (see `.env.example`).
+# Verity
 
-## Getting started
+Verity is a Bun workspaces monorepo for the Phase 1 "Voice Analyst" slice. The current implementation is a deterministic local core loop that takes page text, applies framing and omission analysis, and returns an uncertainty-calibrated response shape that can later sit behind a Gemini Live session.
 
-Install dependencies from the repo root, then start web and API together:
+## Packages
 
-```bash
-bun install
-bun run dev
-```
+- `packages/core`: shared domain models, fixtures, and the local analysis engine
+- `packages/api`: Hono API exposing `/health`, `/fixtures`, `/validate`, `/analyze`, `/live/config`, and `/live/token`
+- `packages/web`: Next.js operator UI for pasting page context and inspecting the resulting analysis
 
-`bun run dev` runs **`scripts/kill-dev-ports.ts`** first: it stops anything already listening on **`WEB_PORT`** and **`API_PORT`** (from `.env`), then starts web + API. Use `bun run kill-dev-ports` alone if you only want to free those ports.
+## Run locally
 
-- Web: default **http://localhost:3000** (override with **`WEB_PORT`** in `.env`)
-- API health: default **http://127.0.0.1:3001/health** (override **`API_PORT`** / **`API_ORIGIN`**)
+1. Copy `.env.example` to `.env`.
+2. Install dependencies with `bun install`.
+3. Start the web app and API with `bun run dev`.
 
-Run only the web or API:
+Default URLs:
+
+- Web UI: `http://localhost:3000`
+- API: `http://127.0.0.1:3001`
+- Health: `http://127.0.0.1:3001/health`
+
+Run individual services if needed:
 
 ```bash
 bun run dev:web
 bun run dev:api
 ```
 
-### Environment
+## Phase 1 flow
 
-- Copy **`.env.example`** → **`.env`** at the repo root (never commit `.env`).
-- **`WEB_PORT`** / **`API_PORT`**: must be two different ports; `bun run dev` uses **`dotenv-cli`** so both processes read the same file.
-- **`WEB_ORIGIN`**: comma-separated browser origins allowed by the API (**CORS**). No trailing slashes.
-- **`API_ORIGIN`**: base URL the Next server uses for server-side `fetch` (not `NEXT_PUBLIC_*`).
-- **`NEXT_PUBLIC_API_ORIGIN`**: only if the browser calls the API directly; omit or use a public URL in production when possible.
+1. Paste or load a fixture page payload in the web UI.
+2. Submit a prompt such as `What am I missing here?`
+3. The web app posts an `AnalysisRequest` to `packages/api`.
+4. The API normalizes the payload and calls the shared analysis engine in `packages/core`.
+5. The UI renders a structured `AnalysisResponse` with:
+   - grounded summary
+   - bias signals
+   - missing context
+   - confidence notes
+   - follow-up prompts
 
-`packages/web/next.config.mjs` loads the **repo-root** `.env` so server code and builds see the same values as the API.
+This is intentionally narrower than the long-term roadmap. Persistent memory, dashboard views, live audio IO, and background fan-out are still deferred.
 
-Edit the home page at `packages/web/app/page.tsx`.
+## Gemini Live patterns
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+The repo is now shaped around the recommended Live API patterns for `gemini-3.1-flash-live-preview`:
 
-## Learn More
+- browser clients should authenticate with ephemeral tokens from `POST /live/token`
+- runtime user input should go through `sendRealtimeInput`
+- `sendClientContent` should only be used to seed initial history before live interaction starts
+- live sessions should keep session resumption and context-window compression enabled
+- audio is the primary response modality; do not mix text and audio modalities in the same session
+- tool declarations belong in the initial `live.connect()` config, not mid-session
 
-To learn more about Next.js, take a look at the following resources:
+The current browser session scaffold lives in `packages/web/lib/live-session.ts`.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Validation
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Run the workspace type checks:
 
-## Deploy on Vercel
+```bash
+bun run check-types
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Run the web lint pass:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```bash
+bun run lint
+```
+
+The API also exposes local fixture checks at `GET /validate`. The current fixtures cover:
+
+- current-page grounding
+- false-balance guardrails
+
+## Environment
+
+- `WEB_PORT`: Next.js dev server port
+- `API_PORT`: API server port
+- `WEB_ORIGIN`: comma-separated origins allowed by API CORS
+- `API_ORIGIN`: server-side API base URL for Next
+- `NEXT_PUBLIC_API_ORIGIN`: browser-visible API base URL for client-side fetches
+- `GEMINI_API_KEY`: server-side key used to mint ephemeral tokens
+
+## Next implementation steps
+
+- replace the deterministic local analysis engine with a queue-driven Gemini Live session manager
+- move page capture into a browser extension or side-panel surface
+- add explicit session state, transcript handling, and tool-calling boundaries
+- keep long-running research and memory work outside the runtime-critical live loop

@@ -6,13 +6,13 @@
   "scripts": {
     "kill-dev-ports": "bun scripts/kill-dev-ports.ts",
     "dev": "bun scripts/kill-dev-ports.ts && concurrently -n web,api -c cyan,magenta \"bun run dev:web\" \"bun run dev:api\"",
-    "dev:web": "bun scripts/kill-dev-ports.ts --web && dotenv -e .env -- sh -c 'cd packages/web && exec bunx next dev -p \"${WEB_PORT:-3000}\"'",
-    "dev:api": "bun scripts/kill-dev-ports.ts --api && dotenv -e .env -- sh -c 'cd packages/api && exec bun --watch src/index.ts'",
+    "dev:web": "bun scripts/kill-dev-ports.ts --web && bun scripts/run-workspace.ts web dev",
+    "dev:api": "bun scripts/kill-dev-ports.ts --api && bun scripts/run-workspace.ts api dev",
     "build": "bun run build:web",
-    "build:web": "dotenv -e .env -- sh -c 'cd packages/web && exec bunx next build'",
-    "start": "dotenv -e .env -- sh -c 'cd packages/web && exec bunx next start -p \"${WEB_PORT:-3000}\"'",
+    "build:web": "bun scripts/run-workspace.ts web build",
+    "start": "bun scripts/run-workspace.ts web start",
     "lint": "bun --cwd packages/web lint",
-    "check-types": "bun --cwd packages/core check-types && bun --cwd packages/api check-types"
+    "check-types": "bun --cwd packages/core check-types && bun --cwd packages/api check-types && bun --cwd packages/web check-types"
   },
   "devDependencies": {
     "concurrently": "^9.1.2",

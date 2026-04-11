@@ -1,15 +1,72 @@
 # Gemini Live Implementation Reference
 
-This document is a practical implementation support guide for building a Gemini Live based system that uses:
+This document is a practical implementation guide for building a Gemini Live based system with:
 
 - real-time voice as the primary interaction surface
 - optional text input and screen sharing
 - local or backend-managed tool execution
 - a richer outer orchestration loop for long-running or parallel non-live model work
 
-It is written from the patterns used in this codebase, but generalised so you can recreate the same architecture for a completely different use case.
+It is written from the patterns used in this codebase, but generalized so you can recreate the same architecture for a different product.
 
-It is not tied to intelligence analysis, graph UIs, or this repo's domain tools. The durable lessons here are about session management, streaming IO, tool calling, state handling, and orchestration boundaries.
+This version also adds current TypeScript guidance for the Gemini Live API as of April 2026:
+
+- use `@google/genai`, not `@google/generative-ai`
+- use `gemini-3.1-flash-live-preview` for new work
+- treat Gemini Live as a stateful WebSocket session
+- use `sendRealtimeInput()` for runtime input on 3.1
+- reserve `sendClientContent()` for seeded history
+- plan for resumption and context compression early
+
+## Current API Baseline
+
+The Gemini Live API is a stateful, bidirectional streaming WebSocket API for voice, text, and visual interaction.
+
+Install the SDK:
+
+```bash
+npm install @google/genai
+```
+
+Minimal initialization:
+
+```ts
+import {
+  GoogleGenAI,
+  Modality,
+  LiveServerMessage,
+  StartSensitivity,
+  EndSensitivity,
+  MediaResolution,
+} from "@google/genai";
+
+const ai = new GoogleGenAI({});
+
+const explicit = new GoogleGenAI({
+  apiKey: process.env.GEMINI_API_KEY,
+});
+
+const vertex = new GoogleGenAI({
+  vertexai: true,
+  project: "your-gcp-project",
+  location: "us-central1",
+});
+```
+
+Use `apiVersion: "v1alpha"` if you need preview-only features.
+
+### Model Choice
+
+Live API requires Live-capable model IDs. Use `gemini-3.1-flash-live-preview` for new development.
+
+| Model string | Status | Notes |
+| --- | --- | --- |
+| `gemini-3.1-flash-live-preview` | Recommended | Native audio, 128K context, `thinkingLevel` |
+| `gemini-2.5-flash-native-audio-preview-12-2025` | Older active | Uses `thinkingBudget`, async function calling |
+| `gemini-2.0-flash-live-001` | Shut down Dec 2025 | Do not target |
+| `gemini-live-2.5-flash-preview` | Shut down Dec 2025 | Do not target |
+
+For the SDK, pass the bare model string. For raw WebSocket setup messages, use `models/gemini-3.1-flash-live-preview`.
 
 ## What This Repo Actually Implements
 
@@ -44,11 +101,9 @@ That is the right mental model: a live conversational shell with tool round-trip
 
 ## Recommended Architecture
 
-For most real products, split the system into three layers:
+Split the system into three layers:
 
 ### 1. Live Interaction Layer
-
-This is the user-facing, low-latency loop:
 
 - microphone capture
 - playback of model audio
@@ -58,11 +113,7 @@ This is the user-facing, low-latency loop:
 - streamed transcripts
 - live tool calls
 
-This is where Gemini Live sits.
-
 ### 2. Tool Execution Layer
-
-This is the bridge between the model and your application:
 
 - UI actions
 - data lookups
@@ -70,15 +121,11 @@ This is the bridge between the model and your application:
 - orchestration job launch
 - orchestration job status retrieval
 
-The model should never directly know how your application works. It should only know tool names, descriptions, and argument schemas.
-
 ### 3. Outer Orchestration Layer
-
-This handles work that does not fit well into a live synchronous turn:
 
 - parallel non-live model calls
 - retrieval pipelines
-- planning and subtask decomposition
+- planning and decomposition
 - background analysis
 - durable job state
 - retries, cancellation, audit, and observability
@@ -89,9 +136,7 @@ Gemini Live should be the front door and realtime coordinator, not the only reas
 
 The central implementation pattern in this repo is an event-driven queue processor.
 
-Instead of handling all Gemini Live callbacks inline, incoming messages are placed into a queue and then consumed by one serial processor loop.
-
-That is a strong pattern because it gives you:
+Instead of handling all Gemini Live callbacks inline, incoming messages are placed into a queue and then consumed by one serial processor loop. That gives you:
 
 - one place to reason about turn state
 - ordered handling of tool calls, transcripts, interruptions, and turn completion
@@ -114,12 +159,8 @@ class AsyncQueue<T> {
   }
 
   async get(): Promise<T> {
-    if (this.items.length > 0) {
-      return this.items.shift()!;
-    }
-    return new Promise(resolve => {
-      this.waiters.push(resolve);
-    });
+    if (this.items.length > 0) return this.items.shift()!;
+    return new Promise(resolve => this.waiters.push(resolve));
   }
 
   clear() {
@@ -133,20 +174,19 @@ class AsyncQueue<T> {
 
 Keep explicit state for:
 
-- `sessionRef`: current live session object
-- `setupComplete`: whether the live session is ready to accept streamed input
-- `messageQueue`: inbound messages
+- `sessionRef`
+- `setupComplete`
+- `messageQueue`
 - `isMicEnabled`
 - `isAgentSpeaking`
-- current partial user transcript
-- current partial assistant transcript
+- partial user transcript
+- partial assistant transcript
 - playback queue
+- latest session resumption handle
 
 Do not infer session state from UI alone.
 
 ### Response Processor
-
-The core shape should look like this:
 
 ```ts
 async function processResponses() {
@@ -169,12 +209,16 @@ async function processResponses() {
       handleAssistantTranscript(message.serverContent.outputTranscription.text);
     }
 
+    if (message.serverContent?.interrupted) {
+      handleInterruption();
+    }
+
     if (message.serverContent?.turnComplete) {
       finalizeAssistantTurn();
     }
 
-    if (message.serverContent?.interrupted) {
-      handleInterruption();
+    if (message.sessionResumptionUpdate?.newHandle) {
+      storeResumeHandle(message.sessionResumptionUpdate.newHandle);
     }
 
     if (message.setupComplete !== undefined) {
@@ -187,8 +231,6 @@ async function processResponses() {
   }
 }
 ```
-
-That is the heart of the system.
 
 ## Bootstrapping a Live Session
 
@@ -230,18 +272,16 @@ async function startSession({
       responseModalities: [Modality.AUDIO],
       speechConfig: {
         voiceConfig: {
-          prebuiltVoiceConfig: {
-            voiceName,
-          },
+          prebuiltVoiceConfig: { voiceName },
         },
       },
-      systemInstruction,
+      systemInstruction: {
+        parts: [{ text: systemInstruction }],
+      },
       mediaResolution: MediaResolution.MEDIA_RESOLUTION_HIGH,
       inputAudioTranscription: {},
       outputAudioTranscription: {},
-      tools: functionDeclarations.length
-        ? [{ functionDeclarations }]
-        : undefined,
+      tools: functionDeclarations.length ? [{ functionDeclarations }] : undefined,
     },
     callbacks: {
       onopen: () => console.log("Live session opened"),
@@ -258,79 +298,87 @@ async function startSession({
 }
 ```
 
-### Important Session Design Notes
+Important notes:
 
-- Do not start streaming microphone audio before the session is actually ready.
-- Track `setupComplete` explicitly from the server event.
-- Treat the websocket connection as a durable session object, not a stateless request channel.
-- Reset per-session accumulators on close.
-- Clear your message queue when ending a session.
+- `responseModalities` should be either `[Modality.AUDIO]` or `[Modality.TEXT]`
+- do not stream microphone audio before the session is ready
+- treat the connection as a durable session object
+- clear per-session accumulators on close
+
+### Simple Turn Collector
+
+```ts
+async function waitForMessage(queue: LiveServerMessage[]): Promise<LiveServerMessage> {
+  while (true) {
+    const msg = queue.shift();
+    if (msg) return msg;
+    await new Promise(r => setTimeout(r, 50));
+  }
+}
+
+async function collectTurn(queue: LiveServerMessage[]): Promise<LiveServerMessage[]> {
+  const messages: LiveServerMessage[] = [];
+  while (true) {
+    const msg = await waitForMessage(queue);
+    messages.push(msg);
+    if (msg.serverContent?.turnComplete) break;
+  }
+  return messages;
+}
+```
 
 ## Authentication Patterns
 
-Authentication strategy is an architectural choice, not a Gemini Live loop concern.
+Authentication strategy is an architectural choice, not a session-loop concern.
 
 ### Option A: Direct API Key in Browser
 
-Best for:
-
-- internal tools
-- prototypes
-- trusted environments
-
-Pattern:
-
-- resolve API key from local env or user settings
-- instantiate `GoogleGenAI({ apiKey })` in the client
-
-Tradeoff:
-
-- simplest implementation
-- worst credential exposure model
+Best for prototypes, internal tools, and trusted environments. Simplest, but worst credential exposure model.
 
 ### Option B: Backend-Issued Ephemeral Token
 
-Best for:
+Best for production browser or mobile clients.
 
-- production browser apps
-- untrusted clients
+```ts
+const serverAi = new GoogleGenAI({
+  apiKey: process.env.GEMINI_API_KEY,
+});
 
-Pattern:
+const token = await serverAi.authTokens.create({
+  config: {
+    uses: 1,
+    expireTime: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
+    newSessionExpireTime: new Date(Date.now() + 60 * 1000).toISOString(),
+    liveConnectConstraints: {
+      model: "gemini-3.1-flash-live-preview",
+      config: {
+        responseModalities: [Modality.AUDIO],
+        temperature: 0.7,
+      },
+    },
+    httpOptions: { apiVersion: "v1alpha" },
+  },
+});
 
-1. browser requests a short-lived token from your backend
-2. backend authenticates the user and requests or creates a live-capable credential
-3. browser uses the returned token to establish the session
+const clientAi = new GoogleGenAI({
+  apiKey: token.name,
+  apiVersion: "v1alpha",
+});
+```
 
-Tradeoff:
+Key points:
 
-- more infrastructure
-- materially safer deployment model
+- ephemeral tokens are short-lived and single-use
+- practical defaults are about 30 minutes expiry and about 1 minute to start a session
+- constrained tokens can lock the client to a specific model and config
 
 ### Option C: Backend Proxy
 
-Best for:
-
-- tightly controlled enterprise environments
-- centralised logging and policy enforcement
-- cases where all traffic must stay brokered server-side
-
-Tradeoff:
-
-- more latency
-- more complexity
-- extra streaming infrastructure
+Best when traffic must be brokered server-side for control, logging, or policy enforcement.
 
 ### Practical Rule
 
 Do not let auth decisions leak into your session loop. Your live session should only depend on a credential that is already resolved.
-
-```ts
-async function resolveLiveCredential(): Promise<string> {
-  if (window.__EPHEMERAL_TOKEN__) return window.__EPHEMERAL_TOKEN__;
-  if (localStorage.getItem("gemini_api_key")) return localStorage.getItem("gemini_api_key")!;
-  throw new Error("No credential available");
-}
-```
 
 ## System Prompt and Dynamic Context
 
@@ -340,17 +388,7 @@ This repo builds the system prompt from:
 - tool usage guidance
 - current application state
 
-That split is correct and generalisable.
-
-### Recommended Prompt Structure
-
-Use three layers:
-
-1. durable behavioural rules
-2. tool usage policy
-3. dynamic runtime context
-
-Example:
+That split is correct and generalizable.
 
 ```ts
 function buildSystemPrompt(appState: {
@@ -381,26 +419,25 @@ Data loaded: ${appState.hasData ? "yes" : "no"}
 }
 ```
 
-### Durable Lessons
+## Sending Multimodal Content
 
-- The prompt should contain just enough app state to help the model act well.
-- Do not dump your entire database schema into every session prompt unless needed.
-- Treat dynamic prompt context as a snapshot, not a real-time source of truth.
-- Application correctness must still live in tools and code, not in prompt wording.
+For `gemini-3.1-flash-live-preview`, the distinction between `sendRealtimeInput()` and `sendClientContent()` matters:
 
-## Voice Input Pipeline
+- use `sendRealtimeInput()` for runtime user input: audio chunks, video frames, and typed text
+- use `sendClientContent()` for seeding prior conversation history
 
-The repo uses browser audio capture with an `AudioWorklet`, downsampling mic input to the PCM format expected by the live API.
+### Voice Input Pipeline
 
-That is the right pattern for robust browser-side voice input.
+The repo uses browser audio capture with an `AudioWorklet`, downsampling mic input to the PCM format expected by the Live API.
 
-### Requirements
+Requirements:
 
 - mono input
 - PCM16 encoding
 - 16kHz send rate
+- little-endian audio
 
-### Recommended Browser Pipeline
+Recommended browser pipeline:
 
 1. request microphone permission
 2. create `AudioContext`
@@ -409,7 +446,7 @@ That is the right pattern for robust browser-side voice input.
 5. resample to 16kHz PCM16
 6. base64-encode and send with `sendRealtimeInput`
 
-### Minimal Send Path
+Minimal send path:
 
 ```ts
 function sendAudioChunk(session: any, pcm16ArrayBuffer: ArrayBuffer) {
@@ -418,24 +455,36 @@ function sendAudioChunk(session: any, pcm16ArrayBuffer: ArrayBuffer) {
   session.sendRealtimeInput({
     audio: {
       data: base64,
-      mimeType: "audio/pcm",
+      mimeType: "audio/pcm;rate=16000",
     },
   });
 }
 ```
 
-### Echo Prevention
+File-based example:
 
-This is a production-critical detail.
+```ts
+import * as fs from "node:fs";
+import pkg from "wavefile";
 
-If you are playing assistant audio through speakers while the mic is open, your own app will often feed the model's speech back into the mic stream. That creates:
+const { WaveFile } = pkg;
 
-- echo
-- accidental self-interruption
-- repeated turn resets
-- nonsense transcripts
+const wav = new WaveFile();
+wav.fromBuffer(fs.readFileSync("input.wav"));
+wav.toSampleRate(16000);
+wav.toBitDepth("16");
 
-The durable pattern is simple:
+session.sendRealtimeInput({
+  audio: {
+    data: wav.toBase64(),
+    mimeType: "audio/pcm;rate=16000",
+  },
+});
+
+session.sendRealtimeInput({ audioStreamEnd: true });
+```
+
+Echo prevention is production-critical:
 
 ```ts
 if (isAgentSpeakingRef.current) {
@@ -443,117 +492,35 @@ if (isAgentSpeakingRef.current) {
 }
 ```
 
-That exact idea is used in this repo before sending mic chunks.
+Do not force the browser capture context to 16kHz at creation time. Capture at the device rate and resample in the worklet.
 
-### AudioContext Advice
+### Text Input
 
-Do not force the browser recording context to 16kHz at creation time. Many devices run at 44.1kHz or 48kHz and forcing the context rate can create capture issues. Capture at the device rate and resample in the worklet.
-
-### Worklet Sketch
+For runtime text on 3.1:
 
 ```ts
-class MicProcessor extends AudioWorkletProcessor {
-  process(inputs: Float32Array[][]) {
-    const channel = inputs[0]?.[0];
-    if (!channel) return true;
-
-    const pcm16 = downsampleAndConvertToPCM16(channel, sampleRate, 16000);
-    this.port.postMessage({ type: "audio", data: pcm16.buffer }, [pcm16.buffer]);
-    return true;
-  }
-}
-
-registerProcessor("mic-processor", MicProcessor);
+session.sendRealtimeInput({
+  text: "What do you see in my camera feed?",
+});
 ```
 
-## Assistant Audio Output
-
-Gemini Live can return audio in streamed chunks. In this repo:
-
-- audio chunks are decoded from base64
-- converted to `Float32Array`
-- queued for playback
-- scheduled in a playback `AudioContext`
-
-This allows smooth playback instead of attempting to play each chunk immediately.
-
-### Playback Pattern
+For seeded history:
 
 ```ts
-function enqueueAssistantAudio(float32Audio: Float32Array) {
-  playbackQueue.push(float32Audio);
-  if (!isPlaying) {
-    void drainPlaybackQueue();
-  }
-}
-
-async function drainPlaybackQueue() {
-  isPlaying = true;
-  isAgentSpeakingRef.current = true;
-
-  while (playbackQueue.length > 0) {
-    const chunk = playbackQueue.shift()!;
-    const buffer = audioContext.createBuffer(1, chunk.length, 24000);
-    buffer.copyToChannel(chunk, 0);
-
-    const source = audioContext.createBufferSource();
-    source.buffer = buffer;
-    source.connect(audioContext.destination);
-    source.start(nextStartTime);
-    nextStartTime += buffer.duration;
-  }
-
-  isPlaying = false;
-  scheduleMicReenableAfterPlayback();
-}
+session.sendClientContent({
+  turns: [
+    { role: "user", parts: [{ text: "My name is Alex." }] },
+    { role: "model", parts: [{ text: "Nice to meet you, Alex!" }] },
+  ],
+  turnComplete: false,
+});
 ```
 
-The key design principle is to track when the assistant is still audibly speaking, not just when the API says generation is complete.
+### Screen Share and Visual Context
 
-## Text Input
+This repo streams screen-share frames to Gemini Live as JPEG images. That is the correct general pattern if the assistant needs live visual context.
 
-Text is useful even in a voice-first app because it gives you:
-
-- fallback input
-- dev and debugging convenience
-- deterministic prompt injection for tests
-- accessibility
-
-### Minimal Text Turn
-
-```ts
-function sendTextMessage(session: any, text: string) {
-  session.sendClientContent({
-    turns: [
-      {
-        role: "user",
-        parts: [{ text }],
-      },
-    ],
-    turnComplete: true,
-  });
-}
-```
-
-### Design Advice
-
-- Route text through the same session and log pipeline as voice.
-- Keep transcript rendering consistent across text and speech.
-- Avoid building a second parallel non-live chat loop unless there is a real need.
-
-## Screen Share and Visual Context
-
-This repo streams screen-share frames to Gemini Live as JPEG images.
-
-That is the correct general pattern if your assistant needs live visual awareness of:
-
-- the current UI
-- external applications
-- documents
-- dashboards
-- operator workflows
-
-### Minimal Screen Share Loop
+Throttle video aggressively. A practical upper bound is 1 FPS, and a single JPEG frame is roughly 258 tokens.
 
 ```ts
 async function startScreenShare(session: any) {
@@ -586,7 +553,7 @@ async function startScreenShare(session: any) {
         mimeType: "image/jpeg",
       },
     });
-  }, 500);
+  }, 1000);
 
   return () => {
     clearInterval(interval);
@@ -595,42 +562,188 @@ async function startScreenShare(session: any) {
 }
 ```
 
-### Resolution Strategy
-
-The repo uses configurable capture resolutions and optionally auto-detects whether the content is text-heavy or visual-heavy.
-
-That is a smart tradeoff pattern:
-
-- text-heavy content benefits from higher resolution
-- visual content often tolerates lower resolution
-- lower resolution reduces bandwidth and CPU cost
-
-### Practical Guidance
+Practical guidance:
 
 - scale deliberately before JPEG encoding
 - expose `frameRate` and `jpegQuality` as settings
 - do not assume native resolution is always best
 - stop capture immediately when the user ends sharing
 
+## Processing Server Responses
+
+A robust message handler should treat each event as potentially containing:
+
+- model output parts
+- input or output transcription updates
+- interruption signals
+- tool calls
+- session resumption updates
+- usage metadata
+- turn completion
+
+```ts
+function processMessage(msg: LiveServerMessage) {
+  const content = msg.serverContent;
+
+  if (content?.modelTurn?.parts) {
+    for (const part of content.modelTurn.parts) {
+      if (part.inlineData?.data) {
+        const audioBytes = Buffer.from(part.inlineData.data, "base64");
+        playAudio(audioBytes);
+      }
+      if (part.text) {
+        appendTextResponse(part.text);
+      }
+    }
+  }
+
+  if (content?.inputTranscription?.text) {
+    console.log("User said:", content.inputTranscription.text);
+  }
+
+  if (content?.outputTranscription?.text) {
+    console.log("Model said:", content.outputTranscription.text);
+  }
+
+  if (content?.interrupted) {
+    flushAudioPlaybackBuffer();
+  }
+
+  if (content?.turnComplete) {
+    onTurnComplete();
+  }
+
+  if (msg.toolCall) {
+    handleToolCall(msg.toolCall);
+  }
+
+  if (msg.goAway) {
+    prepareForReconnection(msg.goAway.timeLeft);
+  }
+
+  if (msg.sessionResumptionUpdate?.newHandle) {
+    storeResumeHandle(msg.sessionResumptionUpdate.newHandle);
+  }
+
+  if (msg.usageMetadata) {
+    console.log("Tokens used:", msg.usageMetadata.totalTokenCount);
+  }
+}
+```
+
+Critical detail for 3.1: a single event may contain multiple parts, for example audio plus transcript text. Always iterate all parts.
+
+### Assistant Audio Output
+
+In this repo:
+
+- audio chunks are decoded from base64
+- converted to `Float32Array`
+- queued for playback
+- scheduled in a playback `AudioContext`
+
+```ts
+function enqueueAssistantAudio(float32Audio: Float32Array) {
+  playbackQueue.push(float32Audio);
+  if (!isPlaying) {
+    void drainPlaybackQueue();
+  }
+}
+
+async function drainPlaybackQueue() {
+  isPlaying = true;
+  isAgentSpeakingRef.current = true;
+
+  while (playbackQueue.length > 0) {
+    const chunk = playbackQueue.shift()!;
+    const buffer = audioContext.createBuffer(1, chunk.length, 24000);
+    buffer.copyToChannel(chunk, 0);
+
+    const source = audioContext.createBufferSource();
+    source.buffer = buffer;
+    source.connect(audioContext.destination);
+    source.start(nextStartTime);
+    nextStartTime += buffer.duration;
+  }
+
+  isPlaying = false;
+  scheduleMicReenableAfterPlayback();
+}
+```
+
+Track when the assistant is still audibly speaking, not just when the API says generation is complete.
+
+## Session Management, Resumption, and Compression
+
+Long-running sessions need explicit lifecycle handling. Server disconnects around the 10 minute mark are a practical planning assumption.
+
+### Session Resumption
+
+Store the latest handle from `sessionResumptionUpdate` and reuse it when reconnecting:
+
+```ts
+let currentResumeHandle: string | null = null;
+
+if (msg.sessionResumptionUpdate?.newHandle) {
+  currentResumeHandle = msg.sessionResumptionUpdate.newHandle;
+}
+
+const session = await ai.live.connect({
+  model: "gemini-3.1-flash-live-preview",
+  config: {
+    responseModalities: [Modality.AUDIO],
+    sessionResumption: {
+      handle: currentResumeHandle,
+      transparent: true,
+    },
+  },
+  callbacks: {},
+});
+```
+
+Operational notes:
+
+- transparent resumption can replay unconsumed messages
+- resume handles are valid for roughly 2 hours on Gemini Developer API
+- on Vertex AI they can last roughly 24 hours
+- resumption implies cached server-side session state, so it may not fit zero-retention requirements
+
+### Context Window Compression
+
+The 128K context window can fill up quickly in long voice or multimodal sessions.
+
+Useful intuition:
+
+- audio input is about 25 tokens per second
+- video frames are about 258 tokens per frame
+
+Without compression:
+
+- pure audio can fill the window in roughly 85 minutes
+- audio plus 1 FPS video can fill it in only a few minutes
+
+```ts
+const config = {
+  responseModalities: [Modality.AUDIO],
+  contextWindowCompression: {
+    slidingWindow: { targetTokens: 16384 },
+    triggerTokens: 100000,
+  },
+  sessionResumption: { transparent: true },
+};
+```
+
+In practice, resumption and compression should usually be enabled together for durable sessions.
+
 ## Tool Calling Architecture
 
-This repo's tool system separates three concerns:
+This repo's tool system separates:
 
 1. declarative tool definitions
 2. runtime tool registry
 3. concrete executors
 
-That is the right structure.
-
-### Why This Separation Matters
-
-It lets you:
-
-- expose a clean schema to the model
-- keep implementation details private
-- disable tools at runtime
-- apply rate limits and policies
-- reuse the same live loop across different domains
+That is the right structure. It lets you expose a clean schema to the model while keeping implementation details private and enforceable.
 
 ### Tool Declaration Example
 
@@ -703,15 +816,34 @@ class ToolRegistry {
       throw new Error(`No executor registered for tool: ${name}`);
     }
 
-    const result = await executor(args, this.deps);
-    return { success: true, result };
+    return executor(args, this.deps);
   }
 }
 ```
 
 ### Handling Tool Calls
 
+The 3.1 live model supports synchronous function calling and Google Search grounding. Tools must be declared when the session is created.
+
 ```ts
+const session = await ai.live.connect({
+  model: "gemini-3.1-flash-live-preview",
+  config: {
+    responseModalities: [Modality.AUDIO],
+    tools: [
+      { functionDeclarations },
+      { googleSearch: {} },
+    ],
+  },
+  callbacks: {
+    onmessage: (msg: LiveServerMessage) => {
+      if (msg.toolCall) {
+        handleToolCalls(msg.toolCall.functionCalls);
+      }
+    },
+  },
+});
+
 async function handleToolCalls(functionCalls: any[]) {
   const functionResponses = [];
 
@@ -721,7 +853,7 @@ async function handleToolCalls(functionCalls: any[]) {
       functionResponses.push({
         id: call.id,
         name: call.name,
-        response: { result: result.result },
+        response: { result },
       });
     } catch (error: any) {
       functionResponses.push({
@@ -736,22 +868,59 @@ async function handleToolCalls(functionCalls: any[]) {
 }
 ```
 
-### Tool Design Guidance
+Live API-specific guidance:
 
-Good tool properties:
+- send function results with `sendToolResponse()`, not `sendClientContent()`
+- synchronous function calls block generation until the results come back
+- async function calling is available on older native-audio variants, not on `gemini-3.1-flash-live-preview`
+- code execution and Google Maps tools are not supported in Live API sessions
 
-- narrow surface area
-- stable argument schema
-- explicit side effects
-- fast execution for synchronous tools
-- easy-to-summarise results
+## Voice Activity Detection and Interruption
 
-Bad tool properties:
+The server performs automatic VAD by default. It detects user speech boundaries and can interrupt model output when the user barges in.
 
-- giant overloaded "do_everything" tools
-- raw arbitrary code execution
-- ambiguous argument semantics
-- tool names that encode internal implementation details
+When `interrupted: true` arrives:
+
+- stop local playback immediately
+- flush any buffered assistant audio that has not been played yet
+- return the UI toward listening
+
+### VAD Tuning
+
+```ts
+const config = {
+  responseModalities: [Modality.AUDIO],
+  realtimeInputConfig: {
+    automaticActivityDetection: {
+      disabled: false,
+      startOfSpeechSensitivity: StartSensitivity.START_SENSITIVITY_HIGH,
+      endOfSpeechSensitivity: EndSensitivity.END_SENSITIVITY_LOW,
+      prefixPaddingMs: 200,
+      silenceDurationMs: 1000,
+    },
+    activityHandling: "START_OF_ACTIVITY_INTERRUPTS",
+  },
+};
+```
+
+### Manual Speech Boundaries
+
+```ts
+const config = {
+  realtimeInputConfig: {
+    automaticActivityDetection: { disabled: true },
+  },
+};
+
+session.sendRealtimeInput({ activityStart: {} });
+session.sendRealtimeInput({
+  audio: {
+    data: base64Pcm,
+    mimeType: "audio/pcm;rate=16000",
+  },
+});
+session.sendRealtimeInput({ activityEnd: {} });
+```
 
 ## Transcript and Turn Handling
 
@@ -765,15 +934,6 @@ You need explicit logic for:
 - per-turn reset on `turnComplete`
 - interruption handling
 
-### Accumulation Pattern
-
-In practice, the API may stream either:
-
-- the full transcript accumulated so far
-- or new fragments that must be appended
-
-So you need defensive accumulation logic:
-
 ```ts
 function accumulateTranscript(previous: string, incoming: string) {
   const next = incoming.trim();
@@ -785,27 +945,11 @@ function accumulateTranscript(previous: string, incoming: string) {
 }
 ```
 
-This pattern is directly relevant to both user and assistant transcript handling.
-
-### Turn Completion
-
-At `turnComplete`:
-
-- finalise any partial assistant transcript
-- clear assistant accumulation buffers
-- move back to listening state
-
-At assistant speech start:
-
-- finalise the previous user transcript log entry
-
-That keeps logs and transcript UI coherent per turn.
+At `turnComplete`, finalize any partial assistant transcript, clear accumulation buffers, and return to listening.
 
 ## State Machine Recommendation
 
-Use an explicit session state enum.
-
-Example:
+Use an explicit session state enum:
 
 ```ts
 type SessionState =
@@ -818,31 +962,13 @@ type SessionState =
   | "error";
 ```
 
-Suggested interpretation:
-
-- `connecting`: establishing websocket session
-- `connected`: connected but not ready
-- `listening`: ready for user input
-- `processing`: user input sent, model is thinking or preparing
-- `speaking`: assistant output is actively arriving or playing
-- `error`: failed state requiring recovery
-
 This is operationally better than ad hoc booleans.
 
 ## The Outer Loop: Gemini Live as Front Door, Non-Live Agents Behind It
 
 This is the most important design decision for a sophisticated system.
 
-If you need:
-
-- parallel non-live Gemma calls
-- multi-step planning
-- retrieval pipelines
-- batch analysis
-- background jobs
-- durable memory and resumable workflows
-
-do not force Gemini Live itself to become the whole orchestration engine.
+If you need parallel non-live calls, planning, retrieval, batch analysis, or durable jobs, do not force Gemini Live itself to become the whole orchestration engine.
 
 Instead, make Gemini Live the interactive coordinator and expose the outer system through tools.
 
@@ -851,7 +977,7 @@ Instead, make Gemini Live the interactive coordinator and expose the outer syste
 Gemini Live should own:
 
 - conversational turn management
-- tool invocation for immediate actions
+- immediate tool invocation
 - real-time voice and screen-share UX
 - short synchronous decisions
 
@@ -859,44 +985,12 @@ The outer orchestrator should own:
 
 - long-running tasks
 - parallel fan-out
-- structured planning
+- planning
 - retries and cancellation
 - durable job records
 - result synthesis
 
-### The Wrong Approach
-
-The wrong design is:
-
-- Gemini Live receives a request
-- Gemini Live calls many heavy tools synchronously
-- each tool blocks for a long time
-- the user waits in an unclear live turn while background work drags on
-
-This produces poor interaction quality.
-
-### The Right Approach
-
-The right design is:
-
-1. Gemini Live receives the user request
-2. Gemini Live decides this requires deep analysis
-3. Gemini Live calls a tool like `start_research_job`
-4. backend or local orchestrator launches parallel non-live tasks
-5. Gemini Live tells the user the job has started
-6. Gemini Live can later call `get_job_status`
-7. when ready, Gemini Live summarises the finished result
-
-### Job Tool Surface
-
-A strong minimal async tool surface is:
-
-- `start_job`
-- `get_job_status`
-- `cancel_job`
-- `get_job_result`
-
-Example declarations:
+### Minimal Async Job Surface
 
 ```ts
 const orchestrationTools = [
@@ -927,216 +1021,36 @@ const orchestrationTools = [
 ];
 ```
 
-### Minimal Orchestrator
+Strong pattern:
 
-```ts
-type JobStatus = "queued" | "running" | "complete" | "failed" | "cancelled";
+1. Gemini Live receives the request
+2. Gemini Live decides it needs deeper work
+3. Gemini Live calls `start_job`
+4. the orchestrator launches parallel non-live tasks
+5. Gemini Live tells the user the job has started
+6. Gemini Live later calls `get_job_status`
 
-interface JobRecord {
-  id: string;
-  kind: string;
-  status: JobStatus;
-  startedAt: number;
-  finishedAt?: number;
-  summary?: string;
-  result?: unknown;
-  error?: string;
-}
+## Pricing and Limits
 
-class Orchestrator {
-  private jobs = new Map<string, JobRecord>();
+Live API usage is token-priced rather than session-priced.
 
-  startJob(kind: string, payload: unknown) {
-    const id = crypto.randomUUID();
-    this.jobs.set(id, {
-      id,
-      kind,
-      status: "queued",
-      startedAt: Date.now(),
-    });
+Indicative paid-tier pricing for `gemini-3.1-flash-live-preview`:
 
-    void this.runJob(id, kind, payload);
-    return id;
-  }
+| Component | Cost per 1M tokens |
+| --- | --- |
+| Text input | $0.75 |
+| Audio input | $3.00 |
+| Image or video input | $1.00 |
+| Text output including thinking | $4.50 |
+| Audio output | $12.00 |
 
-  getJobStatus(id: string) {
-    return this.jobs.get(id) ?? null;
-  }
+Useful planning numbers:
 
-  private async runJob(id: string, kind: string, payload: unknown) {
-    const job = this.jobs.get(id);
-    if (!job) return;
+- voice-only conversation is around $0.023 per minute for audio input plus output combined
+- adding continuous video at 1 FPS can push cost much higher
+- Search grounding has separate usage and billing beyond free allowances
 
-    job.status = "running";
-
-    try {
-      const result = await this.executeKind(kind, payload);
-      job.status = "complete";
-      job.result = result;
-      job.summary = summarizeResult(result);
-      job.finishedAt = Date.now();
-    } catch (error: any) {
-      job.status = "failed";
-      job.error = error.message ?? String(error);
-      job.finishedAt = Date.now();
-    }
-  }
-
-  private async executeKind(kind: string, payload: unknown) {
-    switch (kind) {
-      case "deep_research":
-        return runParallelResearch(payload);
-      case "plan_and_verify":
-        return runPlanningWorkflow(payload);
-      default:
-        throw new Error(`Unknown job kind: ${kind}`);
-    }
-  }
-}
-```
-
-### Parallel Non-Live Gemma Pattern
-
-Suppose Gemini Live is your UX shell and Gemma models are your cheap, parallel worker layer.
-
-A strong pattern is:
-
-```ts
-async function runParallelResearch(payload: any) {
-  const [planner, retriever, critic] = await Promise.all([
-    runGemmaPlanner(payload),
-    runGemmaRetriever(payload),
-    runGemmaCritic(payload),
-  ]);
-
-  return synthesizeResearchResult({
-    planner,
-    retriever,
-    critic,
-  });
-}
-```
-
-The live model should not itself micromanage all those substeps token by token in a single live turn. It should invoke a tool that causes the orchestrator to do that work.
-
-### How Gemini Live Should Talk About Async Jobs
-
-Design your prompt and tool descriptions so the live model behaves well:
-
-- For short tasks, do the work now.
-- For long tasks, start a job and tell the user clearly.
-- Use follow-up status checks rather than pretending to block synchronously.
-- When results are ready, summarise them and offer next actions.
-
-That gives you a clean split between:
-
-- synchronous tool loop
-- asynchronous orchestration loop
-
-### Push Versus Poll
-
-You have two implementation choices for surfacing async results back to the live agent.
-
-#### Polling
-
-Gemini Live asks `get_job_status`.
-
-Best for:
-
-- simpler systems
-- user-driven follow-up
-- minimal infrastructure
-
-#### Push
-
-Your app injects a new turn into the live session when a job completes:
-
-```ts
-session.sendClientContent({
-  turns: [
-    {
-      role: "user",
-      parts: [
-        {
-          text: `System update: job ${jobId} is complete. Result summary: ${summary}`,
-        },
-      ],
-    },
-  ],
-  turnComplete: true,
-});
-```
-
-Best for:
-
-- proactive assistants
-- monitored workflows
-- operations dashboards
-
-Risk:
-
-- if overused, it can feel intrusive or confusing
-
-A safe default is polling plus explicit user consent for proactive notifications.
-
-## Recreating This for a Different Use Case
-
-The domain changes. The loop does not.
-
-### Example Use Cases
-
-- customer support console
-- medical scribe assistant
-- warehouse operations copilot
-- field service troubleshooting assistant
-- software incident commander
-- security operations voice assistant
-
-In every case, the same live architecture applies:
-
-- real-time session
-- microphone pipeline
-- optional screenshare
-- transcript handling
-- tool registry
-- optional outer orchestrator
-
-What changes is:
-
-- tool schema
-- dynamic context
-- backend integrations
-- policy and compliance rules
-
-### Example: Warehouse Operations
-
-Useful tools:
-
-- `lookup_shipment`
-- `reassign_picker`
-- `create_delay_alert`
-- `start_inventory_audit_job`
-- `get_audit_job_status`
-
-### Example: Customer Support
-
-Useful tools:
-
-- `lookup_customer`
-- `get_recent_cases`
-- `draft_refund_email`
-- `start_root_cause_analysis_job`
-- `get_root_cause_analysis_status`
-
-### Example: Incident Response
-
-Useful tools:
-
-- `get_service_health`
-- `query_logs`
-- `create_incident_channel`
-- `start_parallel_failure_analysis`
-- `get_failure_analysis_status`
+Rate limits are typically enforced per project across RPM, TPM, RPD, and IPM dimensions. Live preview limits can be tighter than stable model limits, so treat published values as indicative and verify the actual quotas for the project you deploy.
 
 ## Production Concerns
 
@@ -1150,8 +1064,8 @@ Log:
 - transcript boundaries
 - turn completion
 - background job lifecycle
-
-You do not need to log every streamed token, but you do need enough structure to debug live behaviour.
+- reconnect attempts
+- `goAway` and resume-handle updates
 
 ### 2. Rate Limits and Backpressure
 
@@ -1163,13 +1077,10 @@ Apply control to:
 - screen-share frame rate
 - audio queue length
 
-This repo rate-limits tools in `ToolRegistry`. That is a good place for per-tool and per-category limits.
-
 ### 3. Cancellation
 
 Plan for:
 
-- model-issued tool call cancellation
 - user ending the session mid-job
 - user stopping screen share
 - background job cancellation
@@ -1178,12 +1089,14 @@ Plan for:
 
 Handle:
 
-- websocket close
+- WebSocket close
 - partial session setup
 - microphone permission denial
 - screen-share permission denial
 - invalid tool arguments
 - backend orchestration timeout
+- `goAway` pre-disconnect signals
+- resume handle expiry
 
 ### 5. Security
 
@@ -1197,21 +1110,124 @@ Protect:
 
 Never rely on prompt rules alone to constrain dangerous operations.
 
-### 6. Human Factors
+## Comprehensive End-to-End Example
 
-Live voice systems fail when state is unclear.
+```ts
+import { GoogleGenAI, Modality, LiveServerMessage } from "@google/genai";
+import * as fs from "node:fs";
+import pkg from "wavefile";
 
-Always make it obvious when the assistant is:
+const { WaveFile } = pkg;
 
-- listening
-- speaking
-- waiting
-- running a background job
-- unable to act
+const ai = new GoogleGenAI({});
+const MODEL = "gemini-3.1-flash-live-preview";
+
+let resumeHandle: string | null = null;
+const responseQueue: LiveServerMessage[] = [];
+
+async function waitMessage(): Promise<LiveServerMessage> {
+  while (true) {
+    const msg = responseQueue.shift();
+    if (msg) return msg;
+    await new Promise(r => setTimeout(r, 50));
+  }
+}
+
+async function collectTurn(): Promise<LiveServerMessage[]> {
+  const messages: LiveServerMessage[] = [];
+  while (true) {
+    const msg = await waitMessage();
+    messages.push(msg);
+    if (msg.serverContent?.turnComplete) break;
+  }
+  return messages;
+}
+
+async function main() {
+  const session = await ai.live.connect({
+    model: MODEL,
+    config: {
+      responseModalities: [Modality.AUDIO],
+      systemInstruction: {
+        parts: [{ text: "You are a concise, helpful voice assistant." }],
+      },
+      speechConfig: {
+        voiceConfig: { prebuiltVoiceConfig: { voiceName: "Kore" } },
+      },
+      inputAudioTranscription: {},
+      outputAudioTranscription: {},
+      contextWindowCompression: {
+        slidingWindow: { targetTokens: 16384 },
+        triggerTokens: 100000,
+      },
+      sessionResumption: resumeHandle
+        ? { handle: resumeHandle, transparent: true }
+        : { transparent: true },
+    },
+    callbacks: {
+      onopen: () => console.log("Connected to Gemini Live API"),
+      onmessage: (msg: LiveServerMessage) => {
+        if (msg.sessionResumptionUpdate?.newHandle) {
+          resumeHandle = msg.sessionResumptionUpdate.newHandle;
+        }
+        if (msg.goAway) {
+          console.warn(`Server disconnecting in ${msg.goAway.timeLeft}ms`);
+        }
+        responseQueue.push(msg);
+      },
+      onerror: (e: ErrorEvent) => console.error("Error:", e.message),
+      onclose: (e: CloseEvent) => console.log("Disconnected:", e.reason),
+    },
+  });
+
+  const wav = new WaveFile();
+  wav.fromBuffer(fs.readFileSync("question.wav"));
+  wav.toSampleRate(16000);
+  wav.toBitDepth("16");
+
+  session.sendRealtimeInput({
+    audio: { data: wav.toBase64(), mimeType: "audio/pcm;rate=16000" },
+  });
+  session.sendRealtimeInput({ audioStreamEnd: true });
+
+  const turn = await collectTurn();
+  const outputChunks: Buffer[] = [];
+
+  for (const msg of turn) {
+    const content = msg.serverContent;
+    if (content?.modelTurn?.parts) {
+      for (const part of content.modelTurn.parts) {
+        if (part.inlineData?.data) {
+          outputChunks.push(Buffer.from(part.inlineData.data, "base64"));
+        }
+      }
+    }
+    if (content?.inputTranscription?.text) {
+      console.log("You:", content.inputTranscription.text);
+    }
+    if (content?.outputTranscription?.text) {
+      console.log("Gemini:", content.outputTranscription.text);
+    }
+    if (content?.interrupted) {
+      console.log("(interrupted by user)");
+      outputChunks.length = 0;
+    }
+  }
+
+  if (outputChunks.length > 0) {
+    fs.writeFileSync("response.pcm", Buffer.concat(outputChunks));
+    console.log("Audio response saved to response.pcm");
+  }
+
+  session.close();
+}
+
+main().catch(console.error);
+```
 
 ## Implementation Checklist
 
-Use this as a build order.
+Use this as a build order:
 
 ### Phase 1: Minimal Live Loop
 
@@ -1259,28 +1275,33 @@ Use this as a build order.
 - limits and backpressure
 - cancellation
 - retries
+- session resumption
+- context compression
 - policy enforcement
 
 ## Common Failure Modes
 
 ### Live Loop Problems
 
-- processing websocket callbacks directly instead of queueing them
+- processing WebSocket callbacks directly instead of queueing them
 - mixing session state and UI state
 - not resetting accumulators on `turnComplete`
 - not clearing state on session end
+- not storing the latest resumption handle
 
 ### Audio Problems
 
 - forcing an incompatible capture sample rate
 - sending audio before setup is complete
 - failing to suppress mic during playback
+- forgetting `audioStreamEnd` or manual activity boundaries
 
 ### Screen Share Problems
 
 - streaming too many large frames
 - forgetting to stop tracks on user exit
-- assuming visual context is reliable without enough resolution
+- assuming visual context is unreliable because resolution is too low
+- running continuous video without cost controls
 
 ### Tooling Problems
 
@@ -1288,17 +1309,16 @@ Use this as a build order.
 - ambiguous schema
 - slow synchronous tools that should be async jobs
 - lack of disablement and rate limits
+- trying to send tool results through client content
 
 ### Orchestration Problems
 
-- trying to stuff long-running background analysis into a live synchronous tool call
+- trying to stuff long-running analysis into a live synchronous tool call
 - no durable job ids
 - no status polling path
 - no cancellation model
 
 ## A Good Default Blueprint
-
-If you are starting from scratch for a new product, this is a strong default:
 
 ```text
 Frontend:
@@ -1334,14 +1354,13 @@ If the work is immediate, let Gemini Live do it through tools.
 
 If the work is deep, parallel, slow, or durable, let Gemini Live initiate and supervise it through orchestration tools.
 
-That separation gives you:
+For current TypeScript implementations, three additional rules matter disproportionately:
 
-- low-latency interaction
-- clean live UX
-- scalable background reasoning
-- better reliability
-- easier debugging
-- cleaner product evolution across domains
+- prefer `sendRealtimeInput()` over `sendClientContent()` for runtime input on 3.1
+- combine session resumption with context compression for any session that may last more than a few minutes
+- use ephemeral tokens whenever the client is untrusted
+
+That separation gives you low-latency interaction, cleaner UX, scalable background reasoning, and easier debugging.
 
 ## Relevant Repo References
 

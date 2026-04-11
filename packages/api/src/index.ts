@@ -1,10 +1,23 @@
 import { serve } from "@hono/node-server";
+import { GoogleGenAI, Modality } from "@google/genai";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import {
   API_DEFAULT_PORT,
+  GEMINI_LIVE_API_VERSION,
+  GEMINI_LIVE_MODEL,
   PACKAGES_WORKSPACE,
+  analyzePage,
+  buildPageContext,
+  createLiveConfigSummary,
+  createFixtureRequests,
+  resolveGeminiApiKey,
+  runFixtureAssertions,
+  type AnalysisRequest,
+  type AnalyzeHttpResponse,
   type HealthResponse,
+  type LiveConfigHttpResponse,
+  type LiveTokenHttpResponse,
 } from "@packages/core";
 
 function parseCorsOrigins(raw: string | undefined): string[] {
@@ -13,8 +26,23 @@ function parseCorsOrigins(raw: string | undefined): string[] {
   }
   return raw
     .split(",")
-    .map((s) => s.trim().replace(/\/$/, ""))
+    .map((value) => value.trim().replace(/\/$/, ""))
     .filter(Boolean);
+}
+
+function normalizeRequest(input: Partial<AnalysisRequest>): AnalysisRequest {
+  return {
+    mode: input.mode ?? "analyst",
+    userPrompt: input.userPrompt?.trim() || "What am I missing here?",
+    page: buildPageContext({
+      url: input.page?.url ?? "https://example.com/current-page",
+      title: input.page?.title ?? null,
+      siteName: input.page?.siteName ?? null,
+      publishedAt: input.page?.publishedAt ?? null,
+      contentText: input.page?.contentText ?? "",
+      selectionText: input.page?.selectionText ?? null,
+    }),
+  };
 }
 
 const apiPort = Number(process.env.API_PORT ?? process.env.PORT) || API_DEFAULT_PORT;
@@ -28,8 +56,8 @@ if (webPort != null && String(apiPort) === String(webPort)) {
 }
 
 const app = new Hono();
-
 const allowedOrigins = parseCorsOrigins(process.env.WEB_ORIGIN);
+const geminiApiKey = resolveGeminiApiKey(process.env);
 
 app.use(
   "/*",
@@ -43,8 +71,114 @@ app.get("/health", (c) => {
     ok: true,
     workspace: PACKAGES_WORKSPACE,
     service: "api",
+    mode: geminiApiKey ? "deterministic-local" : "deterministic-local",
   };
   return c.json(body);
+});
+
+app.get("/fixtures", (c) => c.json({ ok: true, fixtures: createFixtureRequests() }));
+
+app.get("/live/config", (c) => {
+  const body: LiveConfigHttpResponse = {
+    ok: true,
+    live: createLiveConfigSummary(),
+    hasServerKey: Boolean(geminiApiKey),
+    tokenEndpoint: "/live/token",
+  };
+  return c.json(body);
+});
+
+app.post("/live/token", async (c) => {
+  if (!geminiApiKey) {
+    const body: LiveTokenHttpResponse = {
+      ok: false,
+      authMode: "unavailable",
+      error:
+        "Gemini Live is not configured. Set GEMINI_API_KEY on the server and request ephemeral tokens from /live/token.",
+      warnings: ["Browser clients should use ephemeral tokens rather than a long-lived API key."],
+    };
+    return c.json(body, 503);
+  }
+
+  try {
+    const ai = new GoogleGenAI({
+      apiKey: geminiApiKey,
+      apiVersion: GEMINI_LIVE_API_VERSION,
+    });
+
+    const now = Date.now();
+    const token = await ai.authTokens.create({
+      config: {
+        uses: 1,
+        expireTime: new Date(now + 30 * 60 * 1000).toISOString(),
+        newSessionExpireTime: new Date(now + 60 * 1000).toISOString(),
+        liveConnectConstraints: {
+          model: GEMINI_LIVE_MODEL,
+          config: {
+            responseModalities: [Modality.AUDIO],
+            temperature: 0.7,
+          },
+        },
+      },
+    });
+
+    const body: LiveTokenHttpResponse = {
+      ok: true,
+      authMode: "ephemeral-token",
+      token: token.name,
+      model: GEMINI_LIVE_MODEL,
+      apiVersion: GEMINI_LIVE_API_VERSION,
+      expiresAt: token.expireTime ?? null,
+      warnings: [
+        "Use sendRealtimeInput for runtime text, audio, and video.",
+        "Reserve sendClientContent for initial seeded history only.",
+      ],
+    };
+    return c.json(body);
+  } catch (error) {
+    const body: LiveTokenHttpResponse = {
+      ok: false,
+      authMode: "unavailable",
+      error: error instanceof Error ? error.message : "Failed to create ephemeral token.",
+      warnings: ["The server-side Gemini credential is present, but token creation failed."],
+    };
+    return c.json(body, 500);
+  }
+});
+
+app.get("/validate", (c) =>
+  c.json({
+    ok: true,
+    results: runFixtureAssertions(),
+  }),
+);
+
+app.post("/analyze", async (c) => {
+  let payload: Partial<AnalysisRequest>;
+  try {
+    payload = await c.req.json();
+  } catch {
+    return c.json({ ok: false, error: "Invalid JSON body." }, 400);
+  }
+
+  const request = normalizeRequest(payload);
+  if (!request.page.contentText.trim()) {
+    return c.json(
+      {
+        ok: false,
+        error: "Page content is required. Provide page.contentText with the extracted article text.",
+      },
+      400,
+    );
+  }
+
+  const response: AnalyzeHttpResponse = {
+    ok: true,
+    request,
+    analysis: analyzePage(request),
+  };
+
+  return c.json(response);
 });
 
 serve({ fetch: app.fetch, port: apiPort }, (info) => {

@@ -6,9 +6,11 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "check-types": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@google/genai": "^1.48.0",
     "@packages/core": "workspace:*",
     "dotenv": "^16.4.7",
     "next": "16.2.3",
