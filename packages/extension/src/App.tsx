@@ -185,8 +185,10 @@ export default function App() {
           `**What to Read Next:** ${briefing.whatToReadNext}`,
           "",
           `Confidence: ${briefing.metadata?.confidence ?? "medium"}. ` +
-            `Synthesize this into a follow-up that adds to or corrects your initial response. ` +
-            `Cite specific findings. Do not repeat raw text.`,
+            `Now give the user a clear, unbiased analytical opinion based on ALL the evidence above. ` +
+            `State what the evidence supports, what it contradicts, and what remains uncertain. ` +
+            `Do not hedge excessively — give a direct, honest assessment while noting limits. ` +
+            `Cite specific sources. Do not repeat raw text.`,
         ].join("\n");
 
         manager.sendContext(formatted);
@@ -220,9 +222,9 @@ export default function App() {
       `[Verity Research — ${event.contexts.length} sources collected]\n\n` +
         crossRef +
         summary +
-        `\n\nSynthesize these sources into a follow-up. If your initial response was accurate, confirm and deepen it. ` +
-        `If these sources contradict something you said, correct it explicitly. ` +
-        `Cite sources by number. Do not repeat raw text.`,
+        `\n\nGive the user a clear, unbiased analytical opinion based on ALL sources above. ` +
+        `State what the evidence supports, what it contradicts, and what remains uncertain. ` +
+        `Be direct and honest. Cite sources by number. Do not repeat raw text.`,
     );
 
     const pending = pendingToolCallRef.current;
@@ -237,6 +239,22 @@ export default function App() {
   }
 
   const handleUserTurnComplete = useCallback((text: string) => {
+    // Voice-cancel: if the user says "stop" while research is running, cancel it
+    if (voiceResearchRef.current.phase === "researching" && isCancelIntent(text)) {
+      console.log("[verity/ext] User cancelled research via voice");
+      chrome.runtime.sendMessage({ type: "research:cancel" });
+      const pending = pendingToolCallRef.current;
+      if (pending && managerRef.current) {
+        managerRef.current.sendToolResponse(pending.id, pending.name, {
+          status: "cancelled",
+          error: "Research cancelled by user.",
+        });
+        pendingToolCallRef.current = null;
+      }
+      setVoiceResearch({ phase: "idle" });
+      return;
+    }
+
     // Don't auto-trigger if research is already running (from tool call or previous auto-trigger)
     if (voiceResearchRef.current.phase === "researching") return;
     // Don't trigger for short utterances
@@ -470,6 +488,18 @@ function isAnalyticalQuery(text: string): boolean {
     "compare", "contrast", "different perspective",
   ];
   return analyticalTerms.some((term) => lower.includes(term));
+}
+
+/** Detect if the user wants to cancel running research. */
+function isCancelIntent(text: string): boolean {
+  const lower = text.toLowerCase();
+  const cancelTerms = [
+    "stop research", "cancel research", "stop the research", "cancel the research",
+    "stop looking", "stop searching", "never mind", "nevermind",
+    "that's enough", "enough research", "stop digging",
+    "cancel that", "abort", "stop that",
+  ];
+  return cancelTerms.some((term) => lower.includes(term));
 }
 
 /** Detect if the user is referring to the page/article currently on screen. */
