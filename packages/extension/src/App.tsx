@@ -270,12 +270,37 @@ export default function App() {
 
     // Give Gemini 3 seconds to call a tool itself. If it doesn't, auto-trigger.
     if (autoTriggerTimerRef.current) clearTimeout(autoTriggerTimerRef.current);
-    autoTriggerTimerRef.current = setTimeout(() => {
+    autoTriggerTimerRef.current = setTimeout(async () => {
       // Check again — Gemini might have called a tool in the meantime
       if (voiceResearchRef.current.phase !== "idle") return;
 
-      console.log("[verity/ext] Auto-triggering research (Gemini did not call tools):", text.slice(0, 80));
+      // Detect if the user is referring to the current page/article on screen
+      const refersToCurrentPage = isCurrentPageReference(text);
 
+      if (refersToCurrentPage) {
+        // Research the active tab directly — don't search for the user's words
+        const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+        if (tab?.id && tab.url && /^https?:\/\//i.test(tab.url)) {
+          console.log("[verity/ext] Auto-triggering PAGE research for active tab:", tab.url);
+          setVoiceResearch({
+            phase: "researching",
+            query: tab.title ?? tab.url,
+            pagesRead: 0,
+            totalPages: 0,
+            status: "Analyzing current page...",
+            recentSources: [],
+          });
+          chrome.runtime.sendMessage({
+            type: "research:start",
+            source: "page",
+            tabId: tab.id,
+          });
+          return;
+        }
+      }
+
+      // Otherwise, use the user's question as a search query
+      console.log("[verity/ext] Auto-triggering QUERY research:", text.slice(0, 80));
       setVoiceResearch({
         phase: "researching",
         query: text,
@@ -312,9 +337,32 @@ export default function App() {
       // Build search query based on which function Gemini called
       let query: string;
       switch (call.name) {
-        case "research_topic":
+        case "research_topic": {
           query = String(call.args.query ?? "");
+          // If Gemini's query refers to "this article/page," research the active tab instead
+          if (isCurrentPageReference(query)) {
+            pendingToolCallRef.current = { id: call.id, name: call.name };
+            void (async () => {
+              const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+              if (tab?.id && tab.url && /^https?:\/\//i.test(tab.url)) {
+                setVoiceResearch({
+                  phase: "researching",
+                  query: tab.title ?? tab.url,
+                  pagesRead: 0,
+                  totalPages: 0,
+                  status: "Analyzing current page...",
+                  recentSources: [],
+                });
+                chrome.runtime.sendMessage({ type: "research:start", source: "page", tabId: tab.id });
+              } else {
+                manager.sendToolResponse(call.id, call.name, { error: "No active web page found to research." });
+                pendingToolCallRef.current = null;
+              }
+            })();
+            return;
+          }
           break;
+        }
         case "fact_check_claim":
           query = `fact check: ${String(call.args.claim ?? "")}`;
           break;
@@ -422,6 +470,22 @@ function isAnalyticalQuery(text: string): boolean {
     "compare", "contrast", "different perspective",
   ];
   return analyticalTerms.some((term) => lower.includes(term));
+}
+
+/** Detect if the user is referring to the page/article currently on screen. */
+function isCurrentPageReference(text: string): boolean {
+  const lower = text.toLowerCase();
+  const pageReferenceTerms = [
+    "this article", "this page", "this news", "this story", "this post",
+    "this blog", "this piece", "this report", "the article", "the page",
+    "the news", "the story", "what i'm reading", "what i'm looking at",
+    "what's on screen", "what's on the screen", "on screen",
+    "what i've shown", "that i've shown", "i'm showing",
+    "current page", "current article", "this site",
+    "do some research on this", "research this", "analyze this", "analyse this",
+    "check this article", "fact check this", "look at this",
+  ];
+  return pageReferenceTerms.some((term) => lower.includes(term));
 }
 
 function buildResearchInlineCard(status: VoiceResearchStatus): LiveInlineCard | null {
