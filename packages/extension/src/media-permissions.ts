@@ -6,10 +6,10 @@
 
 const MIC_QUERY: PermissionDescriptor = { name: "microphone" as PermissionName };
 
-/** Permissions the Live stack may rely on beyond the static manifest list. */
-const LIVE_CAPTURE_PERMISSIONS: chrome.permissions.Permissions = {
+/** Permissions the Live stack may rely on beyond the static manifest list (`audioCapture` is valid in MV3; @types/chrome lags). */
+const LIVE_CAPTURE_PERMISSIONS = {
   permissions: ["audioCapture"],
-};
+} as unknown as chrome.permissions.Permissions;
 
 /**
  * Run before starting a Live session (screen + mic). Throws a clear Error if the user

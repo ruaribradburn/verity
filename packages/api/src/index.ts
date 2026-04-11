@@ -1,6 +1,4 @@
-import { existsSync } from "node:fs";
 import { spawn } from "node:child_process";
-import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { serve } from "@hono/node-server";
 import { GoogleGenAI, Modality } from "@google/genai";
@@ -29,41 +27,8 @@ import {
 const URL_RESOLUTION_MODEL = "gemini-2.5-flash";
 const TRAFILATURA_SCRIPT_PATH = fileURLToPath(new URL("../../../scripts/trafilatura_extract.py", import.meta.url));
 
-/**
- * Repo-root `.venv` from `bun run setup:trafilatura` (recommended on macOS Homebrew Python).
- * `run-workspace` sets cwd to `packages/api`, so repo root is two levels up.
- */
-function trafilaturaRepoRootVenvPython(): string | null {
-  const root = path.resolve(process.cwd(), "../..");
-  if (process.platform === "win32") {
-    const exe = path.join(root, ".venv", "Scripts", "python.exe");
-    return existsSync(exe) ? exe : null;
-  }
-  const py3 = path.join(root, ".venv", "bin", "python3");
-  const py = path.join(root, ".venv", "bin", "python");
-  if (existsSync(py3)) return py3;
-  if (existsSync(py)) return py;
-  return null;
-}
-
-/**
- * Interpreters to try for `trafilatura_extract.py` when `PYTHON_BIN` is unset.
- * Prefers `.venv` when present, then system names (macOS/Linux: python3, python; Windows: python, python3).
- */
-function trafilaturaPythonCandidates(): string[] {
-  const override = process.env.PYTHON_BIN?.trim();
-  if (override) return [override];
-  const venvPy = trafilaturaRepoRootVenvPython();
-  const rest = process.platform === "win32" ? ["python", "python3"] : ["python3", "python"];
-  return venvPy ? [venvPy, ...rest] : rest;
-}
-
-function isSpawnExecutableMissing(error: unknown): boolean {
-  const e = error as NodeJS.ErrnoException & { code?: string };
-  if (e?.code === "ENOENT") return true;
-  const msg = error instanceof Error ? error.message : String(error);
-  return /not found|ENOENT|spawn .* ENOENT/i.test(msg);
-}
+/** macOS/Linux often have `python3` but not `python`; Windows may expose `py`, `python`, or `python3`. */
+const DEFAULT_PYTHON_BIN = process.platform === "win32" ? "py" : "python3";
 
 type ScreenResolution = {
   url: string | null;
@@ -216,64 +181,74 @@ async function resolvePageFromScreen(params: {
   };
 }
 
-function runTrafilaturaWithPython(python: string, url: string): Promise<TrafilaturaResult> {
-  return new Promise<TrafilaturaResult>((resolve, reject) => {
-    const child = spawn(python, [TRAFILATURA_SCRIPT_PATH, url], {
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-
-    let stdout = "";
-    let stderr = "";
-
-    child.stdout.on("data", (chunk) => {
-      stdout += String(chunk);
-    });
-
-    child.stderr.on("data", (chunk) => {
-      stderr += String(chunk);
-    });
-
-    child.on("error", (error) => {
-      reject(error);
-    });
-
-    child.on("close", () => {
-      try {
-        const parsed = JSON.parse(stdout || "{}") as TrafilaturaResult;
-        if ("ok" in parsed) {
-          resolve(parsed);
-          return;
-        }
-      } catch {
-        // fall through to structured error below
-      }
-
-      resolve({
-        ok: false,
-        error: normalizeOptionalText(stderr) ?? "Trafilatura extraction failed.",
-      });
-    });
-  });
-}
-
 async function runTrafilatura(url: string): Promise<TrafilaturaResult> {
-  const candidates = trafilaturaPythonCandidates();
-  let lastSpawnError: Error | undefined;
+  const configuredPython = process.env.PYTHON_BIN?.trim();
+  const candidates =
+    configuredPython != null && configuredPython.length > 0
+      ? [{ command: configuredPython, args: [TRAFILATURA_SCRIPT_PATH, url] }]
+      : process.platform === "win32"
+        ? [
+            { command: "py", args: ["-3", TRAFILATURA_SCRIPT_PATH, url] },
+            { command: "python", args: [TRAFILATURA_SCRIPT_PATH, url] },
+            { command: "python3", args: [TRAFILATURA_SCRIPT_PATH, url] },
+          ]
+        : [
+            { command: "python3", args: [TRAFILATURA_SCRIPT_PATH, url] },
+            { command: "python", args: [TRAFILATURA_SCRIPT_PATH, url] },
+          ];
 
-  for (let i = 0; i < candidates.length; i += 1) {
-    const python = candidates[i]!;
+  let lastSpawnError: Error | null = null;
+
+  for (const candidate of candidates) {
     try {
-      return await runTrafilaturaWithPython(python, url);
+      return await new Promise<TrafilaturaResult>((resolve, reject) => {
+        const child = spawn(candidate.command, candidate.args, {
+          stdio: ["ignore", "pipe", "pipe"],
+        });
+
+        let stdout = "";
+        let stderr = "";
+
+        child.stdout.on("data", (chunk) => {
+          stdout += String(chunk);
+        });
+
+        child.stderr.on("data", (chunk) => {
+          stderr += String(chunk);
+        });
+
+        child.on("error", (error) => {
+          reject(error);
+        });
+
+        child.on("close", () => {
+          try {
+            const parsed = JSON.parse(stdout || "{}") as TrafilaturaResult;
+            if ("ok" in parsed) {
+              resolve(parsed);
+              return;
+            }
+          } catch {
+            // fall through to structured error below
+          }
+
+          resolve({
+            ok: false,
+            error: normalizeOptionalText(stderr) ?? "Trafilatura extraction failed.",
+          });
+        });
+      });
     } catch (error) {
-      if (isSpawnExecutableMissing(error) && i < candidates.length - 1) {
-        lastSpawnError = error instanceof Error ? error : new Error(String(error));
-        continue;
-      }
-      throw error;
+      lastSpawnError = error instanceof Error ? error : new Error(String(error));
     }
   }
 
-  throw lastSpawnError ?? new Error("No Python interpreter found for trafilatura.");
+  throw (
+    lastSpawnError ??
+    new Error(
+      `Could not find a usable Python interpreter. Tried: ${candidates.map((candidate) => candidate.command).join(", ")}`,
+    )
+  );
 }
 
 const apiPort = Number(process.env.API_PORT ?? process.env.PORT) || API_DEFAULT_PORT;
@@ -466,7 +441,7 @@ app.post("/page/context", async (c) => {
     const base = error instanceof Error ? error.message : "Failed to invoke trafilatura.";
     const hint =
       /ENOENT|not found|spawn/i.test(base) || /PATH/i.test(base)
-        ? " Install Python 3 and run: python3 -m pip install trafilatura (on Windows often: python -m pip install trafilatura). Set PYTHON_BIN in .env if needed."
+        ? ` Set PYTHON_BIN in .env (e.g. PYTHON_BIN=${DEFAULT_PYTHON_BIN}), ensure Python 3 is installed, and run: ${DEFAULT_PYTHON_BIN} -m pip install trafilatura`
         : "";
     return c.json(
       {
@@ -554,9 +529,9 @@ app.post("/analyze", async (c) => {
 });
 
 serve({ fetch: app.fetch, port: apiPort }, (info) => {
-  const order = trafilaturaPythonCandidates().join(" → ");
+  const py = process.env.PYTHON_BIN?.trim() || DEFAULT_PYTHON_BIN;
   console.log(
     `[verity/api] listening on http://127.0.0.1:${info.port} (CORS: ${allowedOrigins.join(", ")})`,
   );
-  console.log(`[verity/api] trafilatura will try Python in order: ${order} (set PYTHON_BIN to use one path only)`);
+  console.log(`[verity/api] trafilatura Python: ${py} (override with PYTHON_BIN in .env)`);
 });
