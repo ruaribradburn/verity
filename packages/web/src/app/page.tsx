@@ -1,12 +1,18 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { LiveConfigHttpResponse, PageContext } from "@packages/core";
 import {
+  attachMicrophoneToLiveSession,
   createLiveSessionManager,
+  createScreenShareHandle,
   type LiveSessionManager,
   type LiveSessionSnapshot,
-} from "@/lib/live-session";
+} from "@packages/client";
+import type {
+  LiveConfigHttpResponse,
+  PageContext,
+  PageHydrationHttpResponse,
+} from "@packages/core";
 
 type TranscriptEntry = {
   id: string;
@@ -32,7 +38,7 @@ export default function Home() {
   const managerRef = useRef<LiveSessionManager | null>(null);
   const screenCleanupRef = useRef<(() => void) | null>(null);
   const micCleanupRef = useRef<(() => void) | null>(null);
-  const audioContextRef = useRef<AudioContext | null>(null);
+  const playbackAudioContextRef = useRef<AudioContext | null>(null);
   const playbackCursorRef = useRef(0);
   const lastTurnCountRef = useRef(0);
   const snapshotRef = useRef<LiveSessionSnapshot>({
@@ -109,6 +115,7 @@ export default function Home() {
     if (starting || snapshot.isConnected) return;
 
     setStarting(true);
+    let microphoneStream: MediaStream | null = null;
     try {
       const manager = createLiveSessionManager({
         apiOrigin: API_ORIGIN,
@@ -120,17 +127,46 @@ export default function Home() {
       });
       managerRef.current = manager;
 
-      const page = buildPageContext(pageUrl, pageTitle);
-      await manager.connect(page);
-      await startScreenShare(manager);
-      await startMicrophone(manager);
+      const screenShare = await createScreenShareHandle();
+      screenCleanupRef.current = () => screenShare.stop();
+
+      const hydrated = await hydratePageContext({
+        apiOrigin: API_ORIGIN,
+        fallbackPage: buildPageContext(pageUrl, pageTitle),
+        screenshotBase64: screenShare.captureFrame(),
+      });
+
+      await manager.connect(hydrated.page);
+      screenShare.startStreaming(manager);
+      microphoneStream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      });
+      await startMicrophone(manager, microphoneStream);
+      microphoneStream = null;
+
+      if (hydrated.page.url !== INITIAL_PAGE.url) {
+        setPageUrl(hydrated.page.url);
+      }
+      if (hydrated.page.title) {
+        setPageTitle(hydrated.page.title);
+      }
 
       setTranscript((current) => [
         ...current,
         {
           id: `session-${Date.now()}`,
           role: "system",
-          text: "Live session connected. Screen frames and microphone audio are now being streamed to Gemini Live.",
+          text: [
+            "Live session connected. Screen frames and microphone audio are now being streamed to Gemini Live.",
+            hydrated.message,
+            ...hydrated.warnings,
+          ]
+            .filter(Boolean)
+            .join(" "),
           meta: "connected",
         },
       ]);
@@ -140,10 +176,11 @@ export default function Home() {
         {
           id: `error-${Date.now()}`,
           role: "system",
-          text: error instanceof Error ? error.message : "Failed to start the live session.",
+          text: formatStartSessionError(error),
           meta: "error",
         },
       ]);
+      microphoneStream?.getTracks().forEach((track) => track.stop());
       stopSession();
     } finally {
       setStarting(false);
@@ -155,6 +192,8 @@ export default function Home() {
     screenCleanupRef.current = null;
     micCleanupRef.current?.();
     micCleanupRef.current = null;
+    playbackAudioContextRef.current?.close().catch(() => undefined);
+    playbackAudioContextRef.current = null;
     managerRef.current?.close();
     managerRef.current = null;
     playbackCursorRef.current = 0;
@@ -175,84 +214,19 @@ export default function Home() {
     setTypedInput("");
   }
 
-  async function startScreenShare(manager: LiveSessionManager) {
-    const stream = await navigator.mediaDevices.getDisplayMedia({
-      video: true,
-      audio: false,
+  async function startMicrophone(manager: LiveSessionManager, stream: MediaStream) {
+    micCleanupRef.current = await attachMicrophoneToLiveSession(manager, stream, {
+      shouldSend: () => managerRef.current != null,
     });
-
-    const video = document.createElement("video");
-    video.srcObject = stream;
-    video.muted = true;
-    video.playsInline = true;
-    await video.play();
-
-    const canvas = document.createElement("canvas");
-    const context = canvas.getContext("2d");
-    if (!context) {
-      throw new Error("Canvas 2D context is unavailable for screen capture.");
-    }
-
-    const interval = window.setInterval(() => {
-      if (video.videoWidth === 0 || video.videoHeight === 0) return;
-
-      const width = 1280;
-      const scale = width / video.videoWidth;
-      canvas.width = width;
-      canvas.height = Math.max(720, Math.round(video.videoHeight * scale));
-      context.drawImage(video, 0, 0, canvas.width, canvas.height);
-      const base64Jpeg = canvas.toDataURL("image/jpeg", 0.72).split(",")[1];
-      manager.sendVideoFrame(base64Jpeg);
-    }, 1000);
-
-    const stop = () => {
-      window.clearInterval(interval);
-      stream.getTracks().forEach((track) => track.stop());
-    };
-
-    stream.getVideoTracks()[0]?.addEventListener("ended", stop, { once: true });
-    screenCleanupRef.current = stop;
-  }
-
-  async function startMicrophone(manager: LiveSessionManager) {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    const audioContext = new AudioContext();
-    audioContextRef.current = audioContext;
-
-    const source = audioContext.createMediaStreamSource(stream);
-    const processor = audioContext.createScriptProcessor(4096, 1, 1);
-
-    processor.onaudioprocess = (event) => {
-      if (!managerRef.current || snapshotRef.current.state === "speaking") {
-        return;
-      }
-
-      const input = event.inputBuffer.getChannelData(0);
-      const pcm16 = downsampleToPcm16(input, audioContext.sampleRate, 16000);
-      if (pcm16.byteLength === 0) return;
-      manager.sendAudioChunk(uint8ArrayToBase64(new Uint8Array(pcm16.buffer)));
-    };
-
-    source.connect(processor);
-    processor.connect(audioContext.destination);
-
-    micCleanupRef.current = () => {
-      manager.sendAudioStreamEnd();
-      processor.disconnect();
-      source.disconnect();
-      stream.getTracks().forEach((track) => track.stop());
-      audioContext.close().catch(() => undefined);
-      audioContextRef.current = null;
-    };
   }
 
   function enqueueAssistantAudio(bytes: Uint8Array) {
     const audioContext =
-      audioContextRef.current ??
+      playbackAudioContextRef.current ??
       new AudioContext({
         sampleRate: 24000,
       });
-    audioContextRef.current = audioContext;
+    playbackAudioContextRef.current = audioContext;
 
     const samples = pcm16ToFloat32(bytes);
     const buffer = audioContext.createBuffer(1, samples.length, 24000);
@@ -416,13 +390,27 @@ export default function Home() {
   );
 }
 
+function formatStartSessionError(error: unknown) {
+  if (error instanceof DOMException) {
+    if (error.name === "NotAllowedError") {
+      return "Screen share or microphone permission was dismissed or denied. Allow both prompts, then try again.";
+    }
+
+    if (error.name === "NotFoundError") {
+      return "No usable screen or microphone source was found for the live session.";
+    }
+
+    return error.message || "Failed to start the live session.";
+  }
+
+  return error instanceof Error ? error.message : "Failed to start the live session.";
+}
+
 function TranscriptEntryView({ entry }: { entry: TranscriptEntry }) {
   const tone =
     entry.role === "user"
-      ? "ml-auto bg-stone-950 text-stone-50"
-      : entry.role === "assistant"
-        ? "mr-auto bg-[#20160f] text-stone-100"
-        : "mx-auto bg-stone-200 text-stone-700";
+      ? "mr-auto bg-[#182435] text-[#d9e3f2]"
+      : "ml-auto bg-[#123329] text-[#e5f1ea]";
 
   const width = entry.role === "system" ? "max-w-xl" : "max-w-3xl";
 
@@ -448,54 +436,53 @@ function buildPageContext(url: string, title: string): PageContext {
   };
 }
 
-function downsampleToPcm16(input: Float32Array, inputRate: number, outputRate: number) {
-  if (inputRate === outputRate) {
-    return floatTo16BitPcm(input);
-  }
+async function hydratePageContext({
+  apiOrigin,
+  fallbackPage,
+  screenshotBase64,
+}: {
+  apiOrigin: string;
+  fallbackPage: PageContext;
+  screenshotBase64: string | null;
+}) {
+  try {
+    const response = await fetch(`${apiOrigin}/page/context`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        screenshotBase64,
+        hintedUrl: fallbackPage.url !== INITIAL_PAGE.url ? fallbackPage.url : null,
+        hintedTitle: fallbackPage.title !== INITIAL_PAGE.title ? fallbackPage.title : null,
+        selectionText: fallbackPage.selectionText,
+      }),
+    });
 
-  const ratio = inputRate / outputRate;
-  const outputLength = Math.round(input.length / ratio);
-  const result = new Int16Array(outputLength);
-  let offsetResult = 0;
-  let offsetBuffer = 0;
-
-  while (offsetResult < result.length) {
-    const nextOffsetBuffer = Math.round((offsetResult + 1) * ratio);
-    let accum = 0;
-    let count = 0;
-
-    for (let index = offsetBuffer; index < nextOffsetBuffer && index < input.length; index += 1) {
-      accum += input[index];
-      count += 1;
+    const body = (await response.json()) as PageHydrationHttpResponse;
+    if (!response.ok || !body.ok) {
+      return {
+        page: fallbackPage,
+        message: "Page text retrieval was unavailable, so Gemini Live will rely on screen share and voice only.",
+        warnings: [body.ok ? "Page hydration failed." : body.error],
+      };
     }
 
-    const sample = count > 0 ? accum / count : 0;
-    result[offsetResult] =
-      Math.max(-1, Math.min(1, sample)) < 0
-        ? Math.max(-32768, Math.min(32767, sample * 0x8000))
-        : Math.max(-32768, Math.min(32767, sample * 0x7fff));
-    offsetResult += 1;
-    offsetBuffer = nextOffsetBuffer;
+    return {
+      page: body.page,
+      message:
+        body.source === "screen"
+          ? `Retrieved page content from the screen-detected URL ${body.resolvedUrl}.`
+          : `Retrieved page content from the provided URL ${body.resolvedUrl}.`,
+      warnings: body.warnings,
+    };
+  } catch (error) {
+    return {
+      page: fallbackPage,
+      message: "Page text retrieval was unavailable, so Gemini Live will rely on screen share and voice only.",
+      warnings: [error instanceof Error ? error.message : "Page hydration failed."],
+    };
   }
-
-  return result;
-}
-
-function floatTo16BitPcm(input: Float32Array) {
-  const result = new Int16Array(input.length);
-  for (let index = 0; index < input.length; index += 1) {
-    const sample = Math.max(-1, Math.min(1, input[index]));
-    result[index] = sample < 0 ? sample * 0x8000 : sample * 0x7fff;
-  }
-  return result;
-}
-
-function uint8ArrayToBase64(bytes: Uint8Array) {
-  let binary = "";
-  for (let index = 0; index < bytes.length; index += 1) {
-    binary += String.fromCharCode(bytes[index]);
-  }
-  return btoa(binary);
 }
 
 function pcm16ToFloat32(bytes: Uint8Array) {

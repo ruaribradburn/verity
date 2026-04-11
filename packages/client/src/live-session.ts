@@ -4,6 +4,7 @@ import {
   GEMINI_LIVE_API_VERSION,
   GEMINI_LIVE_MODEL,
   accumulateTranscript,
+  buildLivePageSeed,
   buildLiveSystemInstruction,
   createLiveConfigSummary,
   type LiveTokenHttpResponse,
@@ -39,6 +40,13 @@ type ManagerOptions = {
 
 type LiveSessionHandle = {
   close(): void;
+  sendClientContent(payload: {
+    turns: Array<{
+      role: "user" | "model";
+      parts: Array<{ text: string }>;
+    }>;
+    turnComplete?: boolean;
+  }): void;
   sendRealtimeInput(
     payload:
       | { text: string }
@@ -81,12 +89,17 @@ export function createLiveSessionManager(options: ManagerOptions): LiveSessionMa
       });
     } catch (err) {
       console.error("[verity/live] Network error fetching token — is the API server running?", err);
-      throw new Error(`Cannot reach API at ${options.apiOrigin}/live/token. Is the server running?`);
+      throw new Error(
+        `Cannot reach API at ${options.apiOrigin}/live/token. From the repo root run \`bun run dev\` (starts web + API). ` +
+          `If the error persists from the Chrome extension, confirm CORS allows chrome-extension origins (packages/api enables this by default).`,
+      );
     }
     console.log("[verity/live] Token response status:", res.status);
     const body = (await res.json()) as LiveTokenHttpResponse;
     if (!res.ok || !body.ok) {
-      const msg = body.ok ? "Failed to fetch ephemeral token." : body.error;
+      const msg = body.ok
+        ? `Failed to fetch ephemeral token (HTTP ${res.status}).`
+        : [body.error, ...body.warnings].filter(Boolean).join(" ");
       console.error("[verity/live] Token request failed:", msg);
       throw new Error(msg);
     }
@@ -166,6 +179,7 @@ export function createLiveSessionManager(options: ManagerOptions): LiveSessionMa
         model: GEMINI_LIVE_MODEL,
         config: {
           responseModalities: [Modality.AUDIO],
+          tools: [{ googleSearch: {} }],
           systemInstruction: {
             parts: [{ text: buildLiveSystemInstruction(page) }],
           },
@@ -219,6 +233,18 @@ export function createLiveSessionManager(options: ManagerOptions): LiveSessionMa
       });
 
       console.log("[verity/live] Live session ready — state: listening");
+      if (page.contentText.trim()) {
+        session.sendClientContent({
+          turns: [
+            {
+              role: "user",
+              parts: [{ text: buildLivePageSeed(page) }],
+            },
+          ],
+          turnComplete: false,
+        });
+      }
+
       state = "listening";
       emitSnapshot();
       void processMessages();

@@ -5,11 +5,15 @@
     "strict": true,
     "noEmit": true,
     "skipLibCheck": true,
+    "baseUrl": ".",
     "module": "esnext",
     "moduleResolution": "bundler",
     "jsx": "react-jsx",
     "isolatedModules": true,
-    "verbatimModuleSyntax": false
+    "verbatimModuleSyntax": false,
+    "paths": {
+      "@packages/core": ["../core/index.ts"]
+    }
   },
   "include": ["src/**/*.ts", "src/**/*.tsx"]
 }
