@@ -11,7 +11,7 @@ import {
   type LiveTokenHttpResponse,
   type PageContext,
   type SessionState,
-} from "@packages/core";
+} from "@/core";
 
 export type LiveSessionSnapshot = {
   state: SessionState;
@@ -173,13 +173,13 @@ export function createLiveSessionManager(options: ManagerOptions): LiveSessionMa
               prefixPaddingMs: liveDefaults.realtimeInputConfig.prefixPaddingMs,
               silenceDurationMs: liveDefaults.realtimeInputConfig.silenceDurationMs,
             },
-            activityHandling: liveDefaults.realtimeInputConfig.activityHandling,
+            activityHandling: liveDefaults.realtimeInputConfig.activityHandling as never,
           },
           contextWindowCompression: {
             slidingWindow: {
-              targetTokens: liveDefaults.contextWindowCompression.targetTokens,
+              targetTokens: String(liveDefaults.contextWindowCompression.targetTokens),
             },
-            triggerTokens: liveDefaults.contextWindowCompression.triggerTokens,
+            triggerTokens: String(liveDefaults.contextWindowCompression.triggerTokens),
           },
           sessionResumption: resumeHandle ? { handle: resumeHandle } : undefined,
         },

@@ -1,12 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { LiveConfigHttpResponse, PageContext } from "@packages/core";
+import type { LiveConfigHttpResponse, PageContext } from "@/core";
 import {
   createLiveSessionManager,
   type LiveSessionManager,
   type LiveSessionSnapshot,
-} from "../lib/live-session";
+} from "@/lib/live-session";
 
 type TranscriptEntry = {
   id: string;
@@ -46,15 +46,7 @@ export default function Home() {
   });
 
   const [liveConfig, setLiveConfig] = useState<LiveConfigHttpResponse | null>(null);
-  const [snapshot, setSnapshot] = useState<LiveSessionSnapshot>({
-    state: "disconnected",
-    partialUserTranscript: "",
-    partialAssistantTranscript: "",
-    resumeHandle: null,
-    lastError: null,
-    turnCompleteCount: 0,
-    isConnected: false,
-  });
+  const [snapshot, setSnapshot] = useState<LiveSessionSnapshot>(snapshotRef.current);
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([
     {
       id: "intro",
@@ -478,9 +470,10 @@ function downsampleToPcm16(input: Float32Array, inputRate: number, outputRate: n
     }
 
     const sample = count > 0 ? accum / count : 0;
-    result[offsetResult] = Math.max(-1, Math.min(1, sample)) < 0
-      ? Math.max(-32768, Math.min(32767, sample * 0x8000))
-      : Math.max(-32768, Math.min(32767, sample * 0x7fff));
+    result[offsetResult] =
+      Math.max(-1, Math.min(1, sample)) < 0
+        ? Math.max(-32768, Math.min(32767, sample * 0x8000))
+        : Math.max(-32768, Math.min(32767, sample * 0x7fff));
     offsetResult += 1;
     offsetBuffer = nextOffsetBuffer;
   }

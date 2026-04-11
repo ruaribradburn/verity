@@ -2,22 +2,41 @@
   "name": "verity",
   "version": "0.1.0",
   "private": true,
-  "workspaces": ["packages/*"],
   "scripts": {
     "kill-dev-ports": "bun scripts/kill-dev-ports.ts",
     "dev": "bun scripts/kill-dev-ports.ts && concurrently -n web,api -c cyan,magenta \"bun run dev:web\" \"bun run dev:api\"",
     "dev:web": "bun scripts/kill-dev-ports.ts --web && bun scripts/run-workspace.ts web dev",
     "dev:api": "bun scripts/kill-dev-ports.ts --api && bun scripts/run-workspace.ts api dev",
+    "web:dev": "next dev",
+    "web:build": "next build",
+    "web:start": "next start",
+    "api:dev": "bun --watch src/server/index.ts",
+    "api:start": "bun src/server/index.ts",
     "build": "bun run build:web",
     "build:web": "bun scripts/run-workspace.ts web build",
     "start": "bun scripts/run-workspace.ts web start",
-    "lint": "bun --cwd packages/web lint",
-    "check-types": "bun --cwd packages/core check-types && bun --cwd packages/api check-types && bun --cwd packages/web check-types"
+    "lint": "eslint .",
+    "check-types": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.server.json --noEmit"
+  },
+  "dependencies": {
+    "@google/genai": "^1.48.0",
+    "@hono/node-server": "^1.14.0",
+    "dotenv": "^16.4.7",
+    "hono": "^4.7.0",
+    "next": "16.2.3",
+    "react": "19.2.4",
+    "react-dom": "19.2.4"
   },
   "devDependencies": {
-    "concurrently": "^9.1.2",
-    "dotenv-cli": "^8.0.0",
-    "typescript": "^5"
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "concurrently": "^9.2.1",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.3",
+    "tailwindcss": "^4",
+    "typescript": "^5.9.3"
   },
   "ignoreScripts": ["sharp", "unrs-resolver"],
   "trustedDependencies": ["sharp", "unrs-resolver"]

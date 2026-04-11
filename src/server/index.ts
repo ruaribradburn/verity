@@ -4,13 +4,13 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import {
   API_DEFAULT_PORT,
+  APP_WORKSPACE,
   GEMINI_LIVE_API_VERSION,
   GEMINI_LIVE_MODEL,
-  PACKAGES_WORKSPACE,
   analyzePage,
   buildPageContext,
-  createLiveConfigSummary,
   createFixtureRequests,
+  createLiveConfigSummary,
   resolveGeminiApiKey,
   runFixtureAssertions,
   type AnalysisRequest,
@@ -18,7 +18,7 @@ import {
   type HealthResponse,
   type LiveConfigHttpResponse,
   type LiveTokenHttpResponse,
-} from "@packages/core";
+} from "../core";
 
 function parseCorsOrigins(raw: string | undefined): string[] {
   if (!raw?.trim()) {
@@ -49,7 +49,7 @@ const apiPort = Number(process.env.API_PORT ?? process.env.PORT) || API_DEFAULT_
 const webPort = process.env.WEB_PORT;
 if (webPort != null && String(apiPort) === String(webPort)) {
   console.error(
-    "[@packages/api] WEB_PORT and API_PORT must differ (both are %s). Fix your .env.",
+    "[verity/api] WEB_PORT and API_PORT must differ (both are %s). Fix your .env.",
     apiPort,
   );
   process.exit(1);
@@ -69,9 +69,9 @@ app.use(
 app.get("/health", (c) => {
   const body: HealthResponse = {
     ok: true,
-    workspace: PACKAGES_WORKSPACE,
+    workspace: APP_WORKSPACE,
     service: "api",
-    mode: geminiApiKey ? "deterministic-local" : "deterministic-local",
+    mode: "deterministic-local",
   };
   return c.json(body);
 });
@@ -122,13 +122,17 @@ app.post("/live/token", async (c) => {
       },
     });
 
+    if (!token.name) {
+      throw new Error("Gemini did not return an ephemeral token name.");
+    }
+
     const body: LiveTokenHttpResponse = {
       ok: true,
       authMode: "ephemeral-token",
       token: token.name,
       model: GEMINI_LIVE_MODEL,
       apiVersion: GEMINI_LIVE_API_VERSION,
-      expiresAt: token.expireTime ?? null,
+      expiresAt: null,
       warnings: [
         "Use sendRealtimeInput for runtime text, audio, and video.",
         "Reserve sendClientContent for initial seeded history only.",
@@ -183,6 +187,6 @@ app.post("/analyze", async (c) => {
 
 serve({ fetch: app.fetch, port: apiPort }, (info) => {
   console.log(
-    `[@packages/api] listening on http://127.0.0.1:${info.port} (CORS: ${allowedOrigins.join(", ")})`,
+    `[verity/api] listening on http://127.0.0.1:${info.port} (CORS: ${allowedOrigins.join(", ")})`,
   );
 });

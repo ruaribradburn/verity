@@ -2,32 +2,31 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { spawn } from "node:child_process";
 
-type WorkspaceName = "web" | "api";
+type TargetName = "web" | "api";
 type ScriptName = "dev" | "build" | "start";
 
-const [, , workspace, script] = process.argv as [
+const [, , target, script] = process.argv as [
   string,
   string,
-  WorkspaceName | undefined,
+  TargetName | undefined,
   ScriptName | undefined,
 ];
 
-if (!workspace || !script || !isWorkspace(workspace) || !isScript(script)) {
+if (!target || !script || !isTarget(target) || !isScript(script)) {
   console.error("Usage: bun scripts/run-workspace.ts <web|api> <dev|build|start>");
   process.exit(1);
 }
 
 const repoRoot = process.cwd();
 const envPath = path.join(repoRoot, ".env");
-const workspaceDir = path.join(repoRoot, "packages", workspace);
 const envFromFile = loadDotEnv(envPath);
 const env = { ...process.env, ...envFromFile };
 
-if (workspace === "web") {
+if (target === "web") {
   env.PORT = env.WEB_PORT ?? env.PORT ?? "3000";
 }
 
-if (workspace === "api") {
+if (target === "api") {
   env.PORT = env.API_PORT ?? env.PORT ?? "3001";
 }
 
@@ -36,8 +35,8 @@ const bunExe =
     ? process.execPath
     : "bun";
 
-const child = spawn(bunExe, ["run", script], {
-  cwd: workspaceDir,
+const child = spawn(bunExe, ["run", `${target}:${script}`], {
+  cwd: repoRoot,
   env,
   stdio: "inherit",
 });
@@ -79,7 +78,7 @@ function loadDotEnv(filePath: string) {
   return entries;
 }
 
-function isWorkspace(value: string): value is WorkspaceName {
+function isTarget(value: string): value is TargetName {
   return value === "web" || value === "api";
 }
 

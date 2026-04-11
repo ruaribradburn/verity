@@ -1,4 +1,4 @@
-export const PACKAGES_WORKSPACE = "@packages/core" as const;
+export const APP_WORKSPACE = "src/core" as const;
 export const API_DEFAULT_PORT = 3001 as const;
 export const GEMINI_LIVE_MODEL = "gemini-3.1-flash-live-preview" as const;
 export const GEMINI_LIVE_API_VERSION = "v1alpha" as const;
@@ -138,16 +138,7 @@ const LIMITATION_TERMS = [
   "no data",
 ];
 
-const FRAMING_TERMS = [
-  "shocking",
-  "massive",
-  "disaster",
-  "crisis",
-  "radical",
-  "slam",
-  "blasts",
-  "admits",
-];
+const FRAMING_TERMS = ["shocking", "massive", "disaster", "crisis", "radical", "slam", "blasts", "admits"];
 
 const METHODOLOGY_TERMS = ["survey", "poll", "study", "report", "analysis", "research"];
 
@@ -256,19 +247,6 @@ export function buildLiveSystemInstruction(page: PageContext | null) {
     "Ground your answer in the current page and explicitly note what the page does not show.",
     pageContext,
   ].join("\n\n");
-}
-
-export function createLiveSeedTurns(page: PageContext): LiveSeedTurn[] {
-  return [
-    {
-      role: "user",
-      text: `We are analysing the current page titled "${page.title ?? "untitled"}" at ${page.url}.`,
-    },
-    {
-      role: "model",
-      text: "Understood. I will use the current page as grounding context and keep the response uncertainty-calibrated.",
-    },
-  ];
 }
 
 export function resolveGeminiApiKey(env: Record<string, string | undefined>) {
@@ -469,7 +447,7 @@ function normalizeOptionalText(value: string | null | undefined): string | null 
   return normalized ? normalized : null;
 }
 
-function normalizeWhitespace(value: string): string {
+function normalizeWhitespace(value: string) {
   return value.replace(/\s+/g, " ").trim();
 }
 
