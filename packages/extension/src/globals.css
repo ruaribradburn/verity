@@ -1,4 +1,12 @@
 @import "tailwindcss";
+@source "../../client/src/**/*.tsx";
+
+@theme {
+  --color-accent: var(--accent);
+  --color-accent-muted: var(--accent-muted);
+  --color-bg-elevated: var(--background-elevated);
+  --shadow-premium: 0 10px 40px rgba(0, 0, 0, 0.4);
+}
 
 :root {
   /* Warm, trustworthy palette — not cold/techy teal */
