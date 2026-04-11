@@ -1,5 +1,17 @@
 # Real-Time Multimodal Intelligence Agent — End-to-End Architecture
 
+## Repository layout
+
+| Package | Role |
+| --- | --- |
+| `packages/core` | Shared types, constants, and domain logic (single source of truth for cross-package contracts). |
+| `packages/web` | Next.js App Router UI and any BFF/route handlers you add there. |
+| `packages/api` | Standalone HTTP API (Hono); extends `core` for health and future REST/WS surfaces. |
+
+Run **`bun run dev`** from the repo root to start `packages/web` and `packages/api` together. Ports, CORS (`WEB_ORIGIN`), and server-side API URL (`API_ORIGIN`) are defined in the **repo-root `.env`** (see `.env.example`).
+
+---
+
 This diagram reflects the system described in [`PDR.md`](./PDR.md): **multi-tab client capture** → ingestion → **multilingual canonicalization** → orchestrator → specialized agents → **backend research + source connectors** → shared structured context → **Gemini-backed** synthesis → user-facing output (text **and** voice from the **same** briefing). Synthesis defaults to a **depolarized, evidence-aware briefing** (PDR §1.5), not a single authoritative “correct” answer.
 
 **API stack**: prompts and keys are managed in [Google AI Studio](https://aistudio.google.com/prompts/new_chat); production uses the **Gemini API** aligned with that configuration (PDR §1.6).
