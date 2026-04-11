@@ -2,6 +2,7 @@
   "name": "verity",
   "version": "0.1.0",
   "private": true,
+  "workspaces": ["packages/*", "client", "extension"],
   "scripts": {
     "kill-dev-ports": "bun scripts/kill-dev-ports.ts",
     "dev": "bun scripts/kill-dev-ports.ts && concurrently -n web,api -c cyan,magenta \"bun run dev:web\" \"bun run dev:api\"",
