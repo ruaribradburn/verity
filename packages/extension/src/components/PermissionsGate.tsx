@@ -5,6 +5,7 @@ import {
   type PermissionItem,
   type PermissionStatus,
 } from "../permissions-check";
+import { openVerityPermissionsTab } from "../media-permissions";
 
 interface Props {
   children: React.ReactNode;
@@ -48,8 +49,7 @@ export function PermissionsGate({ children }: Props) {
 
   async function handleGrant() {
     if (!status) return;
-    const updated = await requestMissingPermissions(status);
-    setStatus(updated);
+    openVerityPermissionsTab();
   }
 }
 

@@ -4,6 +4,8 @@ const listEl = document.getElementById("perm-list") as HTMLUListElement;
 const grantBtn = document.getElementById("grant") as HTMLButtonElement;
 const refreshBtn = document.getElementById("refresh") as HTMLButtonElement;
 const statusEl = document.getElementById("status") as HTMLDivElement;
+const troubleEl = document.getElementById("troubleshooting") as HTMLDivElement | null;
+const copyBtn = document.getElementById("copy-url") as HTMLButtonElement | null;
 
 async function render() {
   const status = await checkAllPermissions();
@@ -26,8 +28,11 @@ async function render() {
     statusEl.textContent = "All permissions granted. You can close this tab.";
     statusEl.className = "status success";
     grantBtn.disabled = true;
+    if (troubleEl) troubleEl.style.display = "none";
     chrome.runtime.sendMessage({ type: "verity:mic-granted" }).catch(() => {});
     setTimeout(() => window.close(), 1500);
+  } else {
+    if (troubleEl) troubleEl.style.display = "block";
   }
 }
 
@@ -61,5 +66,14 @@ grantBtn.addEventListener("click", async () => {
 });
 
 refreshBtn.addEventListener("click", () => render());
+
+if (copyBtn) {
+  copyBtn.addEventListener("click", () => {
+    navigator.clipboard.writeText("chrome://settings/content/microphone");
+    const originalText = copyBtn.textContent;
+    copyBtn.textContent = "Copied!";
+    setTimeout(() => (copyBtn.textContent = originalText), 2000);
+  });
+}
 
 render();

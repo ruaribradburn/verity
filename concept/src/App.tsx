@@ -43,7 +43,7 @@ type Message = {
 };
 
 export default function App() {
-  const [apiKey, setApiKey] = useState('');
+  const [apiKey, setApiKey] = useState(() => localStorage.getItem('gemini_api_key') || '');
   const [systemPrompt, setSystemPrompt] = useState(DEFAULT_SYSTEM_PROMPT);
   const [toolsJson, setToolsJson] = useState(DEFAULT_TOOLS);
   const [temperature, setTemperature] = useState<number>(0.7);
@@ -52,77 +52,160 @@ export default function App() {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  // Multimodal states
+  const sessionRef = useRef<any>(null);
+  const streamRef = useRef<MediaStream | null>(null);
   const [isScreenPolling, setIsScreenPolling] = useState(false);
+  const [isLiveConnected, setIsLiveConnected] = useState(false);
+  const [liveStatus, setLiveStatus] = useState<string>('Disconnected');
   const [latestFrame, setLatestFrame] = useState<string | null>(null);
+  const [frameCount, setFrameCount] = useState(0);
   const [isRecording, setIsRecording] = useState(false);
   
   const messagesRef = useRef<Message[]>([]);
   const latestFrameRef = useRef<string | null>(null);
   const apiKeyRef = useRef<string>('');
   const loadingRef = useRef<boolean>(false);
+  const isLiveConnectedRef = useRef<boolean>(false);
 
-  React.useEffect(() => { messagesRef.current = messages; }, [messages]);
+  React.useEffect(() => { 
+    messagesRef.current = messages; 
+  }, [messages]);
   React.useEffect(() => { latestFrameRef.current = latestFrame; }, [latestFrame]);
-  React.useEffect(() => { apiKeyRef.current = apiKey; }, [apiKey]);
+  React.useEffect(() => { 
+    apiKeyRef.current = apiKey; 
+    localStorage.setItem('gemini_api_key', apiKey);
+  }, [apiKey]);
   React.useEffect(() => { loadingRef.current = loading; }, [loading]);
+  React.useEffect(() => { isLiveConnectedRef.current = isLiveConnected; }, [isLiveConnected]);
   
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<BlobPart[]>([]);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const pollingIntervalRef = useRef<any>(null);
-  const proactiveIntervalRef = useRef<any>(null);
 
   const startScreenPoll = async () => {
+    const keyToUse = apiKeyRef.current;
+    if (!keyToUse) {
+      setError('Please enter your Gemini API Key in the settings first.');
+      return;
+    }
+
     try {
-      const stream = await navigator.mediaDevices.getDisplayMedia({ video: { displaySurface: 'browser' } });
+      setLiveStatus('Connecting...');
+      const mediaStream = await navigator.mediaDevices.getDisplayMedia({
+        video: { frameRate: 5 }
+      });
+      streamRef.current = mediaStream;
       if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        videoRef.current.play().catch(e => console.error("Video play failed", e));
-        
-        pollingIntervalRef.current = setInterval(() => {
-          if (videoRef.current && canvasRef.current) {
-            const canvas = canvasRef.current;
-            const video = videoRef.current;
-            if (video.videoWidth > 0 && video.videoHeight > 0) {
-              canvas.width = video.videoWidth;
-              canvas.height = video.videoHeight;
-              const ctx = canvas.getContext('2d');
-              if (ctx) {
-                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-                const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
-                const base64 = dataUrl.split(',')[1];
-                setLatestFrame(base64);
+        videoRef.current.srcObject = mediaStream;
+      }
+
+      // Initialize Live Session - Explicitly use v1alpha for Live API
+      const ai = new GoogleGenAI({ 
+        apiKey: keyToUse,
+        apiVersion: 'v1alpha'
+      });
+      
+      const session = await ai.live.connect({
+        model: 'gemini-3.1-flash-live-preview',
+        config: {
+          systemInstruction: {
+            parts: [{ text: "You are a proactive social media copilot. You are viewing a live stream of the user's screen. Your goal is to identify controversial claims, political bias, or notable news items. Only interrupt and speak if you find something truly interesting or worth verifying. Be concise." }]
+          },
+          responseModalities: ["TEXT"]
+        },
+        callbacks: {
+          onopen: () => {
+             console.log('Live Session Connected');
+             setIsLiveConnected(true);
+             setLiveStatus('Connected');
+             
+             const initialPrompt = "I've started the live screen share. Please monitor my screen and alert me if you see anything interesting, controversial, or news-worthy. Acknowledge this with a brief 'Monitoring active' and then narrate briefly what you see on my screen right now to confirm you can see it.";
+             
+             // Show in UI
+             setMessages(prev => [...prev, { role: 'user', content: initialPrompt }]);
+
+             // Send initial greeting to confirm session is active
+             session.sendClientContent({
+               turns: [{ role: 'user', parts: [{ text: initialPrompt }] }],
+               turnComplete: true
+             });
+          },
+          onmessage: (msg: any) => {
+            console.log('Live Message Received:', msg);
+            if (msg.serverContent?.modelTurn?.parts) {
+              const text = msg.serverContent.modelTurn.parts
+                .map((p: any) => p.text)
+                .filter(Boolean)
+                .join('');
+              if (text) {
+                setMessages(prev => [...prev, {
+                  role: 'model',
+                  content: `🔴 **Live Detection:**\n${text}`
+                }]);
               }
             }
+          },
+          onerror: (e) => {
+             console.error('Live Error:', e);
+             setLiveStatus('Error');
+          },
+          onclose: () => {
+             console.log('Live Session Closed');
+             setIsLiveConnected(false);
+             setLiveStatus('Disconnected');
+             sessionRef.current = null;
           }
-        }, 2000);
+        }
+      });
+      sessionRef.current = session;
 
-        // Proactive polling every 15 seconds
-        proactiveIntervalRef.current = setInterval(() => {
-          if (!loadingRef.current && latestFrameRef.current) {
-             const stealthPrompt = "Review the provided screen context. If you see a controversial claim, a strong political bias, or something highly notable/verifiable, explain it briefly. If the content is mundane, benign, or there is nothing of interest to report, reply with the exact text 'NONE' and nothing else.";
-             submitGenerateRequest(stealthPrompt, null, true);
-          }
-        }, 15000);
+      // Start continuous frame streaming (approx 1fps)
+      pollingIntervalRef.current = setInterval(() => {
+        if (videoRef.current && canvasRef.current && sessionRef.current && isLiveConnectedRef.current) {
+          const canvas = canvasRef.current;
+          const video = videoRef.current;
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
+          const ctx = canvas.getContext('2d');
+            if (ctx) {
+              ctx.drawImage(video, 0, 0);
+              const base64 = canvas.toDataURL('image/jpeg', 0.6).split(',')[1];
+              latestFrameRef.current = base64;
+              setLatestFrame(base64);
+              setFrameCount(prev => prev + 1);
+              
+              // Send to Live API
+              console.log(`Sending frame to Live API (${base64.length} bytes)`);
+              sessionRef.current.sendRealtimeInput({
+                video: {
+                  mimeType: 'image/jpeg',
+                  data: base64
+                }
+              });
+            }
+        }
+      }, 1000);
 
-        setIsScreenPolling(true);
-
-        stream.getVideoTracks()[0].onended = () => {
-           stopScreenPoll();
-        };
-      }
-    } catch(err) {
+      setIsScreenPolling(true);
+      mediaStream.getVideoTracks()[0].onended = () => {
+         stopScreenPoll();
+      };
+    } catch (err: any) {
       console.error(err);
-      setError('Failed to share screen.');
+      setError('Could not start screen share or Live API connection');
     }
   };
 
   const stopScreenPoll = () => {
+    if (sessionRef.current) {
+      try { sessionRef.current.close(); } catch (e) {}
+      sessionRef.current = null;
+    }
+    setIsLiveConnected(false);
+    setLiveStatus('Disconnected');
     if (pollingIntervalRef.current) clearInterval(pollingIntervalRef.current);
-    if (proactiveIntervalRef.current) clearInterval(proactiveIntervalRef.current);
     setIsScreenPolling(false);
     if (videoRef.current && videoRef.current.srcObject) {
        (videoRef.current.srcObject as MediaStream).getTracks().forEach(t => t.stop());
@@ -280,7 +363,6 @@ export default function App() {
 
   return (
     <div className="flex h-screen bg-gray-950 text-gray-200 overflow-hidden">
-      <video ref={videoRef} autoPlay playsInline muted style={{ position: 'fixed', top: '-9999px', left: '-9999px', width: '10px', height: '10px', opacity: 0 }}></video>
       <canvas ref={canvasRef} style={{ display: 'none' }}></canvas>
 
       {/* LHS Configuration Panel */}
@@ -335,10 +417,9 @@ export default function App() {
              {error && <div className="text-red-400 text-sm flex items-center gap-1 mr-4"><ShieldAlert size={14}/> {error}</div>}
              
              {isScreenPolling && latestFrame && (
-                <div className="flex items-center gap-2 bg-gray-950 px-2 py-1 rounded border border-gray-700 relative overflow-hidden">
-                   <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse z-10 absolute top-2 right-2"></div>
-                   <img src={`data:image/jpeg;base64,${latestFrame}`} className="h-8 object-cover rounded opacity-80" alt="Live PIP" />
-                   <span className="text-xs text-gray-400 uppercase tracking-wider font-semibold">Live Polling</span>
+                <div className="flex items-center gap-2 px-3 py-1 bg-blue-500/10 border border-blue-500/30 rounded text-blue-400 text-[10px] font-bold uppercase tracking-widest">
+                   <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
+                   Live Context Active
                 </div>
              )}
 
@@ -351,12 +432,53 @@ export default function App() {
              </button>
           </div>
         </div>
+
+        {/* New Live Context View Area */}
+        {isScreenPolling && (
+          <div className="p-4 bg-gray-900/80 border-b border-gray-800 flex gap-4">
+             <div className="w-64 aspect-video bg-black rounded border border-gray-700 relative overflow-hidden flex items-center justify-center">
+                <video 
+                  ref={videoRef} 
+                  autoPlay 
+                  playsInline 
+                  muted 
+                  className="w-full h-full object-contain"
+                />
+                {!latestFrame && <div className="text-gray-600 text-[10px]">Initializing Stream...</div>}
+                <div className="absolute bottom-2 left-2 bg-black/60 px-2 py-0.5 rounded text-[8px] font-mono text-gray-400">
+                  SECURE LIVE FEED | {frameCount} FRAMES
+                </div>
+             </div>
+             <div className="flex-1 space-y-2">
+                <div className="text-xs font-bold text-gray-500 uppercase tracking-widest">Active Screen Perspective</div>
+                <div className="text-sm text-gray-300 line-clamp-2 italic">
+                  "Watching for interesting, controversial, or news-worthy content..."
+                </div>
+                <div className="flex gap-2">
+                   <span className="px-2 py-0.5 bg-green-900/30 text-green-400 rounded text-[10px] border border-green-800/50">LOOP_ACTIVE</span>
+                   <span className="px-2 py-0.5 bg-blue-900/30 text-blue-400 rounded text-[10px] border border-blue-800/50">1 frame/sec</span>
+                </div>
+             </div>
+          </div>
+        )}
         
         <div className="flex-1 p-6 overflow-y-auto space-y-4">
           {messages.length === 0 && (
              <div className="text-gray-500 h-full flex flex-col items-center justify-center italic text-center">
-               <p>Send a message to start interacting.</p>
-               <p className="mt-2 text-sm max-w-sm">Enable <Monitor size={14} className="inline"/> <b>Live Screen</b> to proactively let context enter the model on every prompt!</p>
+               {isScreenPolling ? (
+                 <>
+                   <div className="w-12 h-12 bg-blue-500/10 rounded-full flex items-center justify-center mb-4 animate-pulse">
+                     <Monitor size={24} className="text-blue-400"/>
+                   </div>
+                   <p className="font-semibold text-gray-300">Live Monitoring Active</p>
+                   <p className="mt-2 text-sm max-w-sm">I am watching your screen. I will speak up automatically if I detect something notable or news-worthy.</p>
+                 </>
+               ) : (
+                 <>
+                   <p>Send a message to start interacting.</p>
+                   <p className="mt-2 text-sm max-w-sm">Enable <Monitor size={14} className="inline"/> <b>Live Screen</b> to proactively let context enter the model on every prompt!</p>
+                 </>
+               )}
              </div>
           )}
           {messages.map((m, i) => (

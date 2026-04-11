@@ -59,10 +59,10 @@ export async function checkAllPermissions(): Promise<PermissionStatus> {
     id: "microphone",
     label: "Microphone (browser)",
     description: micBlocked
-      ? "Microphone is blocked. Open chrome://settings/content/microphone and allow Verity."
-      : "Microphone access will be requested when you start a live session.",
-    granted: !micBlocked,
-    grantable: !micBlocked,
+      ? "Microphone is BLOCKED. You must go to chrome://settings/content/microphone and allow Verity manually."
+      : "Microphone access is required for live voice. It will be requested when you start a session.",
+    granted: micState === "granted",
+    grantable: micState !== "denied",
   });
 
   return {
