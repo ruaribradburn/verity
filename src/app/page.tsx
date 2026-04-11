@@ -1,6 +1,16 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import {
+  ChevronDown,
+  ChevronUp,
+  Information,
+  Microphone,
+  Screen,
+  SendAlt,
+  Settings,
+  Stop,
+} from "@carbon/icons-react";
 import type { LiveConfigHttpResponse, PageContext } from "@/core";
 import {
   createLiveSessionManager,
@@ -271,65 +281,76 @@ export default function Home() {
   }
 
   return (
-    <main className="min-h-screen bg-[radial-gradient(circle_at_top,rgba(142,240,231,0.12),transparent_28%),linear-gradient(180deg,#0b3438_0%,#072528_100%)] text-white">
-      <div className="mx-auto flex min-h-screen max-w-6xl flex-col px-4 py-5 sm:px-6 lg:px-8">
-        <header className="rounded-[1px] border border-white/12 bg-white/5 px-5 py-5 shadow-[0_24px_70px_rgba(0,0,0,0.22)] backdrop-blur-sm">
-          <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
-            <div className="space-y-2">
-              <p className="text-[11px] uppercase tracking-[0.3em] text-white/60">Verity live</p>
-              <h1 className="max-w-3xl text-3xl font-semibold tracking-[-0.04em] sm:text-4xl">
-                Live page analysis, without the clutter
-              </h1>
-              <p className="max-w-2xl text-sm leading-6 text-white/72">
-                Share a screen, speak normally, and keep the transcript central while secondary
-                controls stay tucked away until needed.
-              </p>
-            </div>
+    <main className="min-h-screen text-white">
+      <div className="mx-auto flex min-h-screen max-w-7xl flex-col px-4 py-6 sm:px-6 lg:px-8">
+        <header className="border border-[var(--border)] px-6 py-5">
+          <p className="text-[10px] font-medium uppercase tracking-[0.08em] text-[var(--foreground-muted)]">
+            Verity live
+          </p>
+          <h1 className="mt-1 text-[15px] font-medium text-[var(--foreground)]">
+            Live page analysis workspace
+          </h1>
+          <p className="mt-1 max-w-3xl text-[11px] leading-5 text-[var(--foreground-muted)]">
+            Transcript first. Setup and transport details stay collapsed until needed.
+          </p>
 
-            <div className="flex flex-col gap-2 sm:flex-row">
-              <button
-                type="button"
-                onClick={startSession}
-                disabled={starting || snapshot.isConnected}
-                className="rounded-[1px] border border-white bg-white px-4 py-3 text-sm font-medium text-[#082c2f] transition hover:bg-[#dffefe] disabled:cursor-wait disabled:opacity-60"
-              >
-                {starting
-                  ? "Starting session..."
-                  : snapshot.isConnected
-                    ? "Voice session live"
-                    : "Share screen and start voice"}
-              </button>
-              <button
-                type="button"
-                onClick={stopSession}
-                disabled={!snapshot.isConnected}
-                className="rounded-[1px] border border-white/18 bg-white/6 px-4 py-3 text-sm font-medium text-white transition hover:border-white/32 hover:bg-white/10 disabled:opacity-35"
-              >
-                Stop session
-              </button>
+          <div className="mt-5 flex flex-wrap items-center gap-3 border border-[var(--border)] px-4 py-3">
+            <button
+              type="button"
+              onClick={startSession}
+              disabled={starting || snapshot.isConnected}
+              className={buttonClassName("selected")}
+            >
+              <Screen size={14} aria-hidden="true" />
+              <Microphone size={14} aria-hidden="true" />
+              {starting
+                ? "Starting session..."
+                : snapshot.isConnected
+                  ? "Voice session live"
+                  : "Share screen and start voice"}
+            </button>
+            <button
+              type="button"
+              onClick={stopSession}
+              disabled={!snapshot.isConnected}
+              className={buttonClassName("default")}
+            >
+              <Stop size={14} aria-hidden="true" />
+              Stop session
+            </button>
+            <div className="flex flex-wrap items-center gap-2">
+              <ControlPill label="State" value={snapshot.state} />
+              <ControlPill
+                label="Key"
+                value={liveConfig?.hasServerKey ? "ephemeral ready" : "missing server key"}
+              />
+              <ControlPill
+                label="Resume"
+                value={snapshot.resumeHandle ? "available" : "none"}
+              />
             </div>
-          </div>
-
-          <div className="mt-5 flex flex-wrap gap-2">
-            <Pill label={`state: ${snapshot.state}`} />
-            <Pill label={liveConfig?.hasServerKey ? "ephemeral token ready" : "missing Gemini server key"} />
-            <Pill label={snapshot.resumeHandle ? "session resumable" : "no resume handle yet"} />
           </div>
         </header>
 
         <section className="mt-4 grid flex-1 gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
-          <div className="flex min-h-[72vh] flex-col rounded-[1px] border border-white/12 bg-white/6 shadow-[0_24px_70px_rgba(0,0,0,0.18)] backdrop-blur-sm">
-            <div className="flex items-center justify-between border-b border-white/10 px-4 py-4 sm:px-5">
+          <div className="flex min-h-[72vh] flex-col border border-[var(--border)]">
+            <div className="grid grid-cols-[1fr_auto] items-end gap-3 border-b border-[var(--border)] px-4 py-3">
               <div>
-                <p className="text-[11px] uppercase tracking-[0.28em] text-white/55">Transcript</p>
-                <p className="mt-1 text-sm text-white/72">Live turns stay visible. Controls collapse below.</p>
+                <p className="text-[10px] font-medium uppercase tracking-[0.06em] text-[var(--foreground-muted)]">
+                  Transcript
+                </p>
+                <p className="mt-1 text-[11px] leading-5 text-[var(--foreground-muted)]">
+                  Live turns stay in view while controls remain secondary.
+                </p>
               </div>
-              <div className="font-mono text-[11px] text-white/55">
-                {transcript.length + Number(Boolean(snapshot.partialAssistantTranscript || snapshot.partialUserTranscript))} entries
+              <div className="font-mono text-[11px] text-[var(--foreground-muted)]">
+                {transcript.length +
+                  Number(Boolean(snapshot.partialAssistantTranscript || snapshot.partialUserTranscript))}{" "}
+                entries
               </div>
             </div>
 
-            <div className="flex-1 space-y-3 overflow-y-auto px-4 py-4 sm:px-5">
+            <div className="flex-1 space-y-2 overflow-y-auto px-4 py-4">
               {transcript.map((entry) => (
                 <TranscriptEntryView key={entry.id} entry={entry} />
               ))}
@@ -358,49 +379,77 @@ export default function Home() {
             </div>
 
             <details
-              className="border-t border-white/10 px-4 py-3 sm:px-5"
+              className="border-t border-[var(--border)] px-4 py-3"
               open={composeOpen}
               onToggle={(event) => setComposeOpen(event.currentTarget.open)}
             >
-              <summary className="flex cursor-pointer items-center justify-between gap-3 text-sm text-white/78">
-                <span>Typed message</span>
-                <DisclosureIcon open={composeOpen} />
+              <summary className="flex cursor-pointer items-center justify-between gap-3">
+                <div>
+                  <p className="text-[10px] font-medium uppercase tracking-[0.06em] text-[var(--foreground-muted)]">
+                    Typed message
+                  </p>
+                  <p className="mt-1 text-[11px] text-[var(--foreground-muted)]">
+                    Use only when voice is not enough.
+                  </p>
+                </div>
+                <button type="button" className={buttonClassName("default", true)}>
+                  {composeOpen ? (
+                    <ChevronUp size={14} aria-hidden="true" />
+                  ) : (
+                    <ChevronDown size={14} aria-hidden="true" />
+                  )}
+                  {composeOpen ? "Hide" : "Show"}
+                </button>
               </summary>
-              <div className="mt-3 rounded-[1px] border border-white/10 bg-[#0a2f33] p-3">
+              <div className="mt-3 border border-[var(--border)] p-3">
                 <textarea
                   value={typedInput}
                   onChange={(event) => setTypedInput(event.target.value)}
                   placeholder="Optional typed message while the voice session is live"
-                  className="min-h-24 w-full resize-none border-0 bg-transparent text-sm leading-6 text-white outline-none placeholder:text-white/35"
+                  className="min-h-24 w-full resize-none border-0 bg-transparent text-[12px] leading-6 text-[var(--foreground)] outline-none placeholder:text-[var(--foreground-muted)]"
                 />
-                <div className="mt-3 flex items-center justify-between gap-3 border-t border-white/10 pt-3">
-                  <span className="text-xs text-white/50">Use only when voice is not enough.</span>
+                <div className="mt-3 flex items-center justify-between gap-3 border-t border-[var(--border)] pt-3">
+                  <span className="text-[11px] text-[var(--foreground-muted)]">Typed input is optional.</span>
                   <button
                     type="button"
                     onClick={sendTypedMessage}
                     disabled={!snapshot.isConnected || !typedInput.trim()}
-                    className="rounded-[1px] border border-white bg-white px-3 py-2 text-sm font-medium text-[#082c2f] transition hover:bg-[#dffefe] disabled:opacity-35"
+                    className={buttonClassName("info")}
                   >
+                    <SendAlt size={14} aria-hidden="true" />
                     Send
                   </button>
                 </div>
               </div>
-              {snapshot.lastError ? <p className="mt-3 text-sm text-red-200">{snapshot.lastError}</p> : null}
+              {snapshot.lastError ? (
+                <p className="mt-3 text-[11px] text-[#d29c9c]">{snapshot.lastError}</p>
+              ) : null}
             </details>
           </div>
 
           <aside className="flex flex-col gap-3">
             <details
-              className="rounded-[1px] border border-white/12 bg-white/6 px-4 py-3 shadow-[0_20px_60px_rgba(0,0,0,0.16)] backdrop-blur-sm"
+              className="border border-[var(--border)] px-4 py-3"
               open={setupOpen}
               onToggle={(event) => setSetupOpen(event.currentTarget.open)}
             >
               <summary className="flex cursor-pointer items-center justify-between gap-3">
                 <div>
-                  <p className="text-[11px] uppercase tracking-[0.28em] text-white/55">Session setup</p>
-                  <p className="mt-1 text-sm text-white/72">Optional page hints and startup steps.</p>
+                  <p className="text-[10px] font-medium uppercase tracking-[0.06em] text-[var(--foreground-muted)]">
+                    Session setup
+                  </p>
+                  <p className="mt-1 text-[11px] text-[var(--foreground-muted)]">
+                    Optional page hints and startup steps.
+                  </p>
                 </div>
-                <DisclosureIcon open={setupOpen} />
+                <button type="button" className={buttonClassName("default", true)}>
+                  {setupOpen ? (
+                    <ChevronUp size={14} aria-hidden="true" />
+                  ) : (
+                    <ChevronDown size={14} aria-hidden="true" />
+                  )}
+                  {setupOpen ? "Hide" : "Show"}
+                </button>
               </summary>
 
               <div className="mt-4 space-y-4">
@@ -419,8 +468,8 @@ export default function Home() {
                   />
                 </div>
 
-                <div className="rounded-[1px] border border-white/8 bg-[#0a2f33] p-3">
-                  <ol className="space-y-2 text-sm leading-6 text-white/72">
+                <div className="border border-[var(--border)] p-3">
+                  <ol className="space-y-2 text-[12px] leading-6 text-[var(--foreground-muted)]">
                     <li>1. Start the live session.</li>
                     <li>2. Pick a tab or screen.</li>
                     <li>3. Allow microphone access.</li>
@@ -431,16 +480,27 @@ export default function Home() {
             </details>
 
             <details
-              className="rounded-[1px] border border-white/12 bg-white/6 px-4 py-3 shadow-[0_20px_60px_rgba(0,0,0,0.16)] backdrop-blur-sm"
+              className="border border-[var(--border)] px-4 py-3"
               open={detailsOpen}
               onToggle={(event) => setDetailsOpen(event.currentTarget.open)}
             >
               <summary className="flex cursor-pointer items-center justify-between gap-3">
                 <div>
-                  <p className="text-[11px] uppercase tracking-[0.28em] text-white/55">Runtime details</p>
-                  <p className="mt-1 text-sm text-white/72">Model, transport, and stream state.</p>
+                  <p className="text-[10px] font-medium uppercase tracking-[0.06em] text-[var(--foreground-muted)]">
+                    Runtime details
+                  </p>
+                  <p className="mt-1 text-[11px] text-[var(--foreground-muted)]">
+                    Model, transport, and stream state.
+                  </p>
                 </div>
-                <DisclosureIcon open={detailsOpen} />
+                <button type="button" className={buttonClassName("default", true)}>
+                  {detailsOpen ? (
+                    <ChevronUp size={14} aria-hidden="true" />
+                  ) : (
+                    <ChevronDown size={14} aria-hidden="true" />
+                  )}
+                  {detailsOpen ? "Hide" : "Show"}
+                </button>
               </summary>
 
               <div className="mt-4 flex flex-wrap gap-2">
@@ -460,22 +520,23 @@ export default function Home() {
 function TranscriptEntryView({ entry }: { entry: TranscriptEntry }) {
   const tone =
     entry.role === "user"
-      ? "ml-auto border-white/16 bg-white text-[#082c2f]"
+      ? "ml-auto border-[#41605d] text-[var(--foreground)]"
       : entry.role === "assistant"
-        ? "mr-auto border-[#8ef0e7]/20 bg-[#0b3135] text-white"
-        : "mx-auto border-white/10 bg-white/8 text-white/72";
+        ? "mr-auto border-[var(--border-strong)] text-[var(--foreground)]"
+        : "mx-auto border-[var(--border)] text-[var(--foreground-muted)]";
 
   const width = entry.role === "system" ? "max-w-xl" : "max-w-3xl";
 
   return (
-    <article className={`${width} rounded-[1px] border px-4 py-3 shadow-[0_12px_30px_rgba(0,0,0,0.12)] ${tone}`}>
+    <article className={`${width} border px-4 py-3 ${tone}`}>
       <div className="flex items-center justify-between gap-3">
-        <span className="text-[11px] font-semibold uppercase tracking-[0.24em] opacity-75">
+        <span className="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-[0.06em] opacity-80">
+          <TranscriptRoleIcon role={entry.role} />
           {entry.role}
         </span>
         {entry.meta ? <span className="font-mono text-[11px] opacity-70">{entry.meta}</span> : null}
       </div>
-      <p className="mt-2 whitespace-pre-wrap text-sm leading-6">{entry.text}</p>
+      <p className="mt-2 whitespace-pre-wrap text-[12px] leading-6">{entry.text}</p>
     </article>
   );
 }
@@ -558,19 +619,60 @@ function tryGetHostname(url: string) {
 
 function Pill({ label }: { label: string }) {
   return (
-    <span className="rounded-[1px] border border-white/12 bg-white/8 px-2.5 py-1.5 font-mono text-[11px] text-white/70">
+    <span className="border border-[var(--border)] px-2.5 py-1.5 font-mono text-[11px] text-[var(--foreground-muted)]">
       {label}
     </span>
   );
 }
 
 const inputClassName =
-  "w-full rounded-[1px] border border-white/12 bg-[#0a2f33] px-3 py-3 text-sm text-white outline-none transition placeholder:text-white/32 focus:border-white/28 focus:bg-[#0c3438]";
+  "w-full border border-[var(--border)] bg-transparent px-3 py-3 text-[12px] text-[var(--foreground)] outline-none transition placeholder:text-[var(--foreground-muted)] focus:border-[var(--border-strong)]";
 
-function DisclosureIcon({ open }: { open: boolean }) {
+function ControlPill({ label, value }: { label: string; value: string }) {
+  const icon =
+    label === "State" ? (
+      <Information size={12} aria-hidden="true" />
+    ) : label === "Key" ? (
+      <Screen size={12} aria-hidden="true" />
+    ) : (
+      <Settings size={12} aria-hidden="true" />
+    );
+
   return (
-    <span className="font-mono text-xs text-white/55" aria-hidden="true">
-      {open ? "[-]" : "[+]"}
-    </span>
+    <div className="inline-flex h-[26px] items-center gap-2 border border-[var(--border)] px-2.5 text-[11px]">
+      <span className="text-[var(--foreground-muted)]">{icon}</span>
+      <span className="text-[10px] font-medium uppercase tracking-[0.06em] text-[var(--foreground-muted)]">
+        {label}
+      </span>
+      <span className="font-mono text-[11px] text-[var(--foreground)]">{value}</span>
+    </div>
   );
+}
+
+function buttonClassName(tone: "selected" | "info" | "default", compact = false) {
+  const base =
+    "inline-flex items-center justify-center gap-1.5 border text-[11px] font-normal tracking-[0.01em] transition disabled:cursor-not-allowed disabled:opacity-45";
+  const sizing = compact ? "h-[26px] px-[10px]" : "h-[26px] px-[10px]";
+
+  if (tone === "selected") {
+    return `${base} ${sizing} border-[var(--border-strong)] text-[var(--foreground)] hover:border-[var(--accent)] hover:text-[var(--accent)]`;
+  }
+
+  if (tone === "info") {
+    return `${base} ${sizing} border-[var(--border-strong)] text-[var(--foreground-muted)] hover:border-[var(--foreground)] hover:text-[var(--foreground)]`;
+  }
+
+  return `${base} ${sizing} border-[var(--border)] text-[var(--foreground-muted)] hover:border-[var(--border-strong)] hover:text-[var(--foreground)]`;
+}
+
+function TranscriptRoleIcon({ role }: { role: TranscriptEntry["role"] }) {
+  if (role === "user") {
+    return <Microphone size={12} aria-hidden="true" />;
+  }
+
+  if (role === "assistant") {
+    return <Information size={12} aria-hidden="true" />;
+  }
+
+  return <Settings size={12} aria-hidden="true" />;
 }

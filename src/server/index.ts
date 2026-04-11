@@ -1,5 +1,5 @@
 import { serve } from "@hono/node-server";
-import { GoogleGenAI, Modality } from "@google/genai";
+import { GoogleGenAI, Modality, ThinkingLevel } from "@google/genai";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import {
@@ -7,6 +7,10 @@ import {
   APP_WORKSPACE,
   GEMINI_LIVE_API_VERSION,
   GEMINI_LIVE_MODEL,
+  GEMINI_LIVE_AFFECTIVE_DIALOG,
+  GEMINI_LIVE_SPEECH_LANGUAGE_CODE,
+  GEMINI_LIVE_TEMPERATURE,
+  GEMINI_LIVE_VOICE,
   analyzePage,
   buildPageContext,
   createFixtureRequests,
@@ -116,7 +120,19 @@ app.post("/live/token", async (c) => {
           model: GEMINI_LIVE_MODEL,
           config: {
             responseModalities: [Modality.AUDIO],
-            temperature: 0.7,
+            temperature: GEMINI_LIVE_TEMPERATURE,
+            enableAffectiveDialog: GEMINI_LIVE_AFFECTIVE_DIALOG,
+            thinkingConfig: {
+              thinkingLevel: ThinkingLevel.MINIMAL,
+            },
+            speechConfig: {
+              languageCode: GEMINI_LIVE_SPEECH_LANGUAGE_CODE,
+              voiceConfig: {
+                prebuiltVoiceConfig: {
+                  voiceName: GEMINI_LIVE_VOICE,
+                },
+              },
+            },
           },
         },
       },

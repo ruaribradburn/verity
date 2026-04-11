@@ -19,6 +19,7 @@
     "check-types": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.server.json --noEmit"
   },
   "dependencies": {
+    "@carbon/icons-react": "^11.78.0",
     "@google/genai": "^1.48.0",
     "@hono/node-server": "^1.14.0",
     "dotenv": "^16.4.7",

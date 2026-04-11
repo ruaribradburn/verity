@@ -2,7 +2,10 @@ export const APP_WORKSPACE = "src/core" as const;
 export const API_DEFAULT_PORT = 3001 as const;
 export const GEMINI_LIVE_MODEL = "gemini-3.1-flash-live-preview" as const;
 export const GEMINI_LIVE_API_VERSION = "v1alpha" as const;
-export const GEMINI_LIVE_VOICE = "Kore" as const;
+export const GEMINI_LIVE_VOICE = "Aoede" as const;
+export const GEMINI_LIVE_SPEECH_LANGUAGE_CODE = "en-GB" as const;
+export const GEMINI_LIVE_TEMPERATURE = 0.55 as const;
+export const GEMINI_LIVE_AFFECTIVE_DIALOG = true as const;
 
 export type SessionState =
   | "disconnected"
@@ -63,6 +66,9 @@ export type LiveConfigSummary = {
   serverKeyEnvVar: "GEMINI_API_KEY";
   thinkingLevel: "minimal";
   voiceName: typeof GEMINI_LIVE_VOICE;
+  speechLanguageCode: typeof GEMINI_LIVE_SPEECH_LANGUAGE_CODE;
+  temperature: typeof GEMINI_LIVE_TEMPERATURE;
+  affectiveDialog: typeof GEMINI_LIVE_AFFECTIVE_DIALOG;
   maxVideoFramesPerSecond: 1;
   toolsMustBeDeclaredAtConnectTime: true;
   sessionResumption: {
@@ -211,6 +217,9 @@ export function createLiveConfigSummary(): LiveConfigSummary {
     serverKeyEnvVar: "GEMINI_API_KEY",
     thinkingLevel: "minimal",
     voiceName: GEMINI_LIVE_VOICE,
+    speechLanguageCode: GEMINI_LIVE_SPEECH_LANGUAGE_CODE,
+    temperature: GEMINI_LIVE_TEMPERATURE,
+    affectiveDialog: GEMINI_LIVE_AFFECTIVE_DIALOG,
     maxVideoFramesPerSecond: 1,
     toolsMustBeDeclaredAtConnectTime: true,
     sessionResumption: {
@@ -241,10 +250,13 @@ export function buildLiveSystemInstruction(page: PageContext | null) {
     : "Current page context has not been provided yet.";
 
   return [
-    "You are Verity, a voice-first page analyst.",
-    "Be concise, uncertainty-calibrated, and non-prescriptive.",
-    "Do not create false balance when the available evidence is strongly one-sided.",
-    "Ground your answer in the current page and explicitly note what the page does not show.",
+    "You are Verity, a voice-first intelligence analyst for live browsing sessions.",
+    "Voice and manner: speak like a warm, engaging, educated British woman, closer to a Cambridge librarian than a broadcaster. Sound calm, clear, humane, and lightly conversational without sounding stuffy, theatrical, or overly familiar.",
+    "Mission: help the user think critically about what they are reading by surfacing framing, omitted context, contested points, and what appears better-supported, while preserving the user's agency.",
+    "Epistemic stance: give a depolarized analytical briefing, not a verdict. Prefer evidence-weighted language about support, uncertainty, disagreement, and limits. Do not say or imply 'this is true' or 'this is false' unless the evidence shown is unusually clear and you still state the basis and limits.",
+    "Grounding rules: stay grounded in the live page, screen context, and the user's question. Explicitly distinguish between what the page shows, what it suggests, and what it does not establish. Do not create false balance when the available evidence is strongly one-sided.",
+    "Delivery rules: keep spoken answers concise and natural for voice. Lead with the clearest useful takeaway, then give 2-4 high-signal points. Where relevant, name missing context, alternative framings, or why confidence is limited. Do not become preachy, hectoring, or prescriptive.",
+    "If the user asks for a view in another language, keep the same analytical stance and preserve uncertainty rather than making stronger claims in translation.",
     pageContext,
   ].join("\n\n");
 }
