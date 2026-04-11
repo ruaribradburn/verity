@@ -360,39 +360,43 @@ export function LiveVoiceSession({ apiOrigin }: LiveVoiceSessionProps) {
             Transcript first. Setup and transport details stay collapsed until needed.
           </p>
 
-          <div className="mt-5 flex flex-wrap items-center gap-3 border border-[var(--border)] px-4 py-3">
-            <button
-              type="button"
-              onClick={startSession}
-              disabled={starting || snapshot.isConnected}
-              className={buttonClassName("selected")}
-            >
-              <Screen size={14} aria-hidden="true" />
-              <Microphone size={14} aria-hidden="true" />
-              {starting
-                ? "Starting session..."
-                : snapshot.isConnected
-                  ? "Voice session live"
-                  : "Share screen and start voice"}
-            </button>
-            <button
-              type="button"
-              onClick={stopSession}
-              disabled={!snapshot.isConnected}
-              className={buttonClassName("default")}
-            >
-              <Stop size={14} aria-hidden="true" />
-              Stop session
-            </button>
-            <div className="flex flex-wrap items-center gap-2">
-              <ControlPill label="State" value={snapshot.state} />
-              <ControlPill
+          <div className="mt-5 flex flex-col gap-3 border border-[var(--border)] bg-[rgba(6,17,18,0.45)] p-4">
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                onClick={startSession}
+                disabled={starting || snapshot.isConnected}
+                tone="accent"
+              >
+                <Screen size={14} aria-hidden="true" />
+                <Microphone size={14} aria-hidden="true" />
+                {starting
+                  ? "Starting session..."
+                  : snapshot.isConnected
+                    ? "Voice session live"
+                    : "Share screen and start voice"}
+              </Button>
+              <Button
+                type="button"
+                onClick={stopSession}
+                disabled={!snapshot.isConnected}
+                tone="neutral"
+              >
+                <Stop size={14} aria-hidden="true" />
+                Stop session
+              </Button>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <StatusButton label="State" value={snapshot.state} icon={<Information size={12} aria-hidden="true" />} />
+              <StatusButton
                 label="Key"
                 value={liveConfig?.hasServerKey ? "ephemeral ready" : "missing server key"}
+                icon={<Screen size={12} aria-hidden="true" />}
               />
-              <ControlPill
+              <StatusButton
                 label="Resume"
                 value={snapshot.resumeHandle ? "available" : "none"}
+                icon={<Settings size={12} aria-hidden="true" />}
               />
             </div>
           </div>
@@ -458,16 +462,16 @@ export function LiveVoiceSession({ apiOrigin }: LiveVoiceSessionProps) {
                     Use only when voice is not enough.
                   </p>
                 </div>
-                <button type="button" className={buttonClassName("default", true)}>
+                <Button type="button" tone="ghost">
                   {composeOpen ? (
                     <ChevronUp size={14} aria-hidden="true" />
                   ) : (
                     <ChevronDown size={14} aria-hidden="true" />
                   )}
                   {composeOpen ? "Hide" : "Show"}
-                </button>
+                </Button>
               </summary>
-              <div className="mt-3 border border-[var(--border)] p-3">
+              <div className="mt-3 border border-[var(--border)] bg-[rgba(6,17,18,0.35)] p-3">
                 <textarea
                   value={typedInput}
                   onChange={(event) => setTypedInput(event.target.value)}
@@ -476,15 +480,15 @@ export function LiveVoiceSession({ apiOrigin }: LiveVoiceSessionProps) {
                 />
                 <div className="mt-3 flex items-center justify-between gap-3 border-t border-[var(--border)] pt-3">
                   <span className="text-[11px] text-[var(--foreground-muted)]">Typed input is optional.</span>
-                  <button
+                  <Button
                     type="button"
                     onClick={sendTypedMessage}
                     disabled={!snapshot.isConnected || !typedInput.trim()}
-                    className={buttonClassName("info")}
+                    tone="accent-soft"
                   >
                     <SendAlt size={14} aria-hidden="true" />
                     Send
-                  </button>
+                  </Button>
                 </div>
               </div>
               {snapshot.lastError ? (
@@ -495,7 +499,7 @@ export function LiveVoiceSession({ apiOrigin }: LiveVoiceSessionProps) {
 
           <aside className="flex flex-col gap-3">
             <details
-              className="border border-[var(--border)] px-4 py-3"
+              className="border border-[var(--border)] bg-[rgba(6,17,18,0.28)] px-4 py-3"
               open={setupOpen}
               onToggle={(event) => setSetupOpen(event.currentTarget.open)}
             >
@@ -508,14 +512,14 @@ export function LiveVoiceSession({ apiOrigin }: LiveVoiceSessionProps) {
                     Optional page hints and startup steps.
                   </p>
                 </div>
-                <button type="button" className={buttonClassName("default", true)}>
+                <Button type="button" tone="ghost">
                   {setupOpen ? (
                     <ChevronUp size={14} aria-hidden="true" />
                   ) : (
                     <ChevronDown size={14} aria-hidden="true" />
                   )}
                   {setupOpen ? "Hide" : "Show"}
-                </button>
+                </Button>
               </summary>
 
               <div className="mt-4 space-y-4">
@@ -534,7 +538,7 @@ export function LiveVoiceSession({ apiOrigin }: LiveVoiceSessionProps) {
                   />
                 </div>
 
-                <div className="border border-[var(--border)] p-3">
+                <div className="border border-[var(--border)] bg-[rgba(6,17,18,0.35)] p-3">
                   <ol className="space-y-2 text-[12px] leading-6 text-[var(--foreground-muted)]">
                     <li>1. Start the live session.</li>
                     <li>2. Pick a tab or screen.</li>
@@ -546,7 +550,7 @@ export function LiveVoiceSession({ apiOrigin }: LiveVoiceSessionProps) {
             </details>
 
             <details
-              className="border border-[var(--border)] px-4 py-3"
+              className="border border-[var(--border)] bg-[rgba(6,17,18,0.28)] px-4 py-3"
               open={detailsOpen}
               onToggle={(event) => setDetailsOpen(event.currentTarget.open)}
             >
@@ -559,14 +563,14 @@ export function LiveVoiceSession({ apiOrigin }: LiveVoiceSessionProps) {
                     Model, transport, and stream state.
                   </p>
                 </div>
-                <button type="button" className={buttonClassName("default", true)}>
+                <Button type="button" tone="ghost">
                   {detailsOpen ? (
                     <ChevronUp size={14} aria-hidden="true" />
                   ) : (
                     <ChevronDown size={14} aria-hidden="true" />
                   )}
                   {detailsOpen ? "Hide" : "Show"}
-                </button>
+                </Button>
               </summary>
 
               <div className="mt-4 flex flex-wrap gap-2">
@@ -602,10 +606,8 @@ function formatStartSessionError(error: unknown) {
 function TranscriptEntryView({ entry }: { entry: TranscriptEntry }) {
   const tone =
     entry.role === "user"
-      ? "ml-auto border-[#41605d] text-[var(--foreground)]"
-      : entry.role === "assistant"
-        ? "mr-auto border-[var(--border-strong)] text-[var(--foreground)]"
-        : "mx-auto border-[var(--border)] text-[var(--foreground-muted)]";
+      ? "mr-auto border-[#2d3f56] bg-[#182435] text-[#d9e3f2]"
+      : "ml-auto border-[#33594e] bg-[#123329] text-[#e5f1ea]";
 
   const width = entry.role === "system" ? "max-w-xl" : "max-w-3xl";
 
@@ -750,50 +752,72 @@ function tryGetHostname(url: string) {
 
 function Pill({ label }: { label: string }) {
   return (
-    <span className="border border-[var(--border)] px-2.5 py-1.5 font-mono text-[11px] text-[var(--foreground-muted)]">
+    <span className="inline-flex h-9 items-center rounded-[1px] border border-[var(--border)] bg-[rgba(8,28,29,0.55)] px-3 font-mono text-[11px] text-[var(--foreground-muted)]">
       {label}
     </span>
   );
 }
 
 const inputClassName =
-  "w-full border border-[var(--border)] bg-transparent px-3 py-3 text-[12px] text-[var(--foreground)] outline-none transition placeholder:text-[var(--foreground-muted)] focus:border-[var(--border-strong)]";
+  "w-full border border-[var(--border)] bg-[rgba(5,19,20,0.7)] px-3 py-3 text-[12px] text-[var(--foreground)] outline-none transition placeholder:text-[var(--foreground-muted)] focus:border-[var(--border-strong)]";
 
-function ControlPill({ label, value }: { label: string; value: string }) {
-  const icon =
-    label === "State" ? (
-      <Information size={12} aria-hidden="true" />
-    ) : label === "Key" ? (
-      <Screen size={12} aria-hidden="true" />
-    ) : (
-      <Settings size={12} aria-hidden="true" />
-    );
+type ButtonTone = "accent" | "accent-soft" | "neutral" | "ghost";
 
+function Button({
+  tone,
+  className = "",
+  children,
+  ...props
+}: React.ButtonHTMLAttributes<HTMLButtonElement> & {
+  tone: ButtonTone;
+}) {
   return (
-    <div className="inline-flex h-[26px] items-center gap-2 border border-[var(--border)] px-2.5 text-[11px]">
+    <button
+      {...props}
+      className={`${buttonClassName(tone)} ${className}`.trim()}
+    >
+      {children}
+    </button>
+  );
+}
+
+function StatusButton({
+  label,
+  value,
+  icon,
+}: {
+  label: string;
+  value: string;
+  icon: React.ReactNode;
+}) {
+  return (
+    <Button type="button" tone="ghost" className="cursor-default">
       <span className="text-[var(--foreground-muted)]">{icon}</span>
       <span className="text-[10px] font-medium uppercase tracking-[0.06em] text-[var(--foreground-muted)]">
         {label}
       </span>
       <span className="font-mono text-[11px] text-[var(--foreground)]">{value}</span>
-    </div>
+    </Button>
   );
 }
 
-function buttonClassName(tone: "selected" | "info" | "default", compact = false) {
+function buttonClassName(tone: ButtonTone) {
   const base =
-    "inline-flex items-center justify-center gap-1.5 border text-[11px] font-normal tracking-[0.01em] transition disabled:cursor-not-allowed disabled:opacity-45";
-  const sizing = compact ? "h-[26px] px-[10px]" : "h-[26px] px-[10px]";
+    "inline-flex h-9 items-center justify-center gap-2 rounded-[1px] border px-3 text-[11px] font-normal tracking-[0.01em] transition-colors disabled:cursor-not-allowed disabled:opacity-45";
 
-  if (tone === "selected") {
-    return `${base} ${sizing} border-[var(--border-strong)] text-[var(--foreground)] hover:border-[var(--accent)] hover:text-[var(--accent)]`;
+  if (tone === "accent") {
+    return `${base} border-[var(--border-strong)] bg-[rgba(65,96,93,0.16)] text-[var(--foreground)] hover:border-[var(--accent)]`;
   }
 
-  if (tone === "info") {
-    return `${base} ${sizing} border-[var(--border-strong)] text-[var(--foreground-muted)] hover:border-[var(--foreground)] hover:text-[var(--foreground)]`;
+  if (tone === "accent-soft") {
+    return `${base} border-[var(--border)] bg-[rgba(8,28,29,0.55)] text-[var(--foreground)] hover:border-[var(--border-strong)]`;
   }
 
-  return `${base} ${sizing} border-[var(--border)] text-[var(--foreground-muted)] hover:border-[var(--border-strong)] hover:text-[var(--foreground)]`;
+  if (tone === "ghost") {
+    return `${base} border-[var(--border)] bg-[rgba(8,28,29,0.55)] text-[var(--foreground)] hover:border-[var(--border-strong)]`;
+  }
+
+  return `${base} border-[var(--border)] bg-[rgba(8,28,29,0.55)] text-[var(--foreground)] hover:border-[var(--border-strong)]`;
 }
 
 function TranscriptRoleIcon({ role }: { role: TranscriptEntry["role"] }) {
