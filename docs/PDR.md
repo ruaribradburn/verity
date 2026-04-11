@@ -45,6 +45,23 @@ The product **does not** optimize for telling the user “this is correct” or 
 
 This stance applies to **copy, synthesis prompts, and UI defaults** (tone, hedging, citation-first explanations).
 
+## 1.6 Google AI Studio, Gemini API, voice, and multilingual delivery
+
+**Model and API mandate**
+
+* **Primary stack**: Verity standardizes on **Google AI Studio** for prompt iteration, model selection, and API key management, and on the **Gemini API** for runtime inference. Prompts and system instructions are developed in the Studio workspace (including the [Prompts → new chat](https://aistudio.google.com/prompts/new_chat) flow) and **deployed to production** as versioned configs that call the same **Gemini** model family—so behavior in Studio matches what users get in the product (within documented limits).
+* **No parallel “shadow LLM” for core reasoning**: orchestrator, synthesis, and voice-facing agents use this stack unless a narrow exception is approved (e.g. offline evaluation only).
+
+**Voice agent**
+
+* **Single briefing, multiple modalities**: A **voice agent** (speech-in / speech-out where supported) runs on the **same Gemini-backed pipeline** as text: it consumes the **one** depolarized, structured briefing produced after multilingual canonicalization and shared-state merge—not a separate ad-hoc conversational model that could contradict the text path.
+* Voice prompts, safety settings, and epistemic tone (§1.5) stay **aligned** with Studio-managed system instructions.
+
+**Multilingual abstractions**
+
+* **Sources may be in many languages** (page text, transcripts, user speech). The system uses **language detection** and, where needed, **cross-language understanding** so that evidence and claims feed into a **single language-agnostic representation** in shared context (canonical claim IDs, entity keys, evidence pointers, confidence)—**one merged analytical object** before final delivery.
+* **Delivery locale**: The same merged artifact is **rendered** (written and/or spoken) in the **user’s chosen language(s)** without re-running independent per-language “truth” passes that could diverge; optional lightweight **localization** adjusts phrasing while preserving uncertainty and citations.
+
 ---
 
 # 2. Problem Statement
@@ -86,6 +103,7 @@ A real-time assistant implemented as a **fleet of cooperating agents** that:
   * PDFs
   * Videos (transcripts)
   * Audio streams
+* **Multilingual sources**: ingest preserves provenance and language tags; downstream **canonicalization** (§1.6) merges cross-language material into **one structured representation** for agents.
 
 ## 4.2 Entity Extraction Engine
 
@@ -179,8 +197,9 @@ A real-time assistant implemented as a **fleet of cooperating agents** that:
 
 ## 4.10 Voice-First Output
 
-* Concise spoken summaries
-* Structured explanation format
+* **Voice agent** on the **Gemini / Google AI Studio** stack (§1.6): spoken input and output tied to the **same** synthesized briefing as the UI.
+* Concise spoken summaries that preserve **uncertainty and citations** where feasible (no “voice-only” stronger claims than text).
+* Structured explanation format; **locale** for speech follows user preference (§1.6).
 
 ---
 
@@ -222,24 +241,28 @@ Voice and UI microcopy should reinforce §1.5 (no false certainty; user retains 
 
 ## 6.1 High-Level Components
 
-1. Ingestion Layer
-2. NLP Processing Layer (NER / extraction **agents**)
-3. Knowledge Graph Service (graph **agent** + store)
-4. **Multi-Agent Orchestrator** (routing, parallelism, merge, escalation)
-5. Analysis **agents** (bias, framing, credibility)
-6. Research / verification **agents** (parallel where possible)
-7. **Synthesis / output agent** (single user-facing **briefing**: depolarized tone, uncertainty-aware, traceable to agents and sources—not a definitive “answer key”)
-8. Frontend Interface
+1. Ingestion Layer (with language detection / tagging for multilingual sources)
+2. **Multilingual canonicalization layer**: maps mixed-language inputs into **one language-agnostic structured state** (feeds shared context; §1.6)
+3. NLP Processing Layer (NER / extraction **agents**)
+4. Knowledge Graph Service (graph **agent** + store)
+5. **Google AI Studio–aligned Gemini API layer**: prompts/config from Studio; runtime calls to Gemini for agent steps that require the mandated stack (§1.6)
+6. **Multi-Agent Orchestrator** (routing, parallelism, merge, escalation)
+7. Analysis **agents** (bias, framing, credibility)
+8. Research / verification **agents** (parallel where possible)
+9. **Synthesis / output agent** (single user-facing **briefing**: depolarized tone, uncertainty-aware, traceable to agents and sources—not a definitive “answer key”)
+10. **Voice agent** (speech I/O on the same Gemini stack and **same** briefing object as text)
+11. Frontend Interface (text + optional voice)
 
 ## 6.2 Data Flow
 
-1. Input content → ingestion normalizes payload for agents.
-2. Orchestrator fans out: entity extraction ∥ early claim/span detection (where applicable).
-3. Graph agent updates knowledge graph; scores propagate to shared context.
-4. Bias + credibility **analysis agents** write structured results; orchestrator detects conflicts or low confidence.
-5. Research agents run **in parallel** on independent claim bundles; results merged with source pointers.
-6. **Synthesis agent** produces one briefing from the shared representation (traceable to each upstream agent), applying **depolarized phrasing** and **explicit uncertainty** per §1.5.
-7. User sees formatted output; optional voice layer reads the same structured result (same epistemic stance).
+1. Input content → ingestion normalizes payload and **language metadata** for agents.
+2. **Canonicalization**: mixed-language spans are aligned to **one structured representation** (claims, entities, evidence IDs) in shared context (§1.6); no duplicate parallel pipelines per source language.
+3. Orchestrator fans out: entity extraction ∥ early claim/span detection (where applicable), using **Gemini API** where specified (§1.6).
+4. Graph agent updates knowledge graph; scores propagate to shared context.
+5. Bias + credibility **analysis agents** write structured results; orchestrator detects conflicts or low confidence.
+6. Research agents run **in parallel** on independent claim bundles; results merged with source pointers (cross-language evidence allowed).
+7. **Synthesis agent** (Gemini-backed per §1.6) produces **one** briefing from the shared representation (traceable to each upstream agent), applying **depolarized phrasing** and **explicit uncertainty** per §1.5.
+8. **Delivery**: text UI and **voice agent** consume the **same** briefing object; output **locale** (read/speak) is applied at presentation time without changing the underlying merged analysis.
 
 ## 6.3 Multi-Agent Roles (illustrative)
 
@@ -250,7 +273,8 @@ Voice and UI microcopy should reinforce §1.5 (no false certainty; user retains 
 | Graph | Nodes, edges, confidence | Scoring, synthesis |
 | Bias / credibility | Scores, rationale snippets | Orchestrator, research, synthesis |
 | Research | Evidence, corroboration, opposing views | Orchestrator, synthesis |
-| Synthesis | Depolarized briefing, sectioning, citations, uncertainty | User (and voice layer) |
+| Synthesis | Depolarized briefing, sectioning, citations, uncertainty | User, voice agent |
+| Voice agent | Speech I/O; **same briefing** as text; Gemini / Studio-aligned | User |
 
 Agents **do not** each emit a separate chat stream to the user by default; the product presents **one** merged result, with optional drill-down into per-agent rationale in later phases. The merged result is **not** positioned as infallible truth; it is a **structured, sourced, humility-first** synthesis.
 
@@ -260,8 +284,9 @@ Agents **do not** each emit a separate chat stream to the user by default; the p
 
 ## 7.1 Models
 
-* LLM (core reasoning)
-* NER models
+* **Gemini (via Google AI Studio–managed API)** — **primary** LLM for orchestrated agent steps, synthesis, and voice agent reasoning surfaces (§1.6)
+* **Multilingual**: Gemini multilingual capabilities plus explicit **canonical schema** in shared state so cross-language evidence collapses to **one** merged artifact before delivery
+* NER models (may be Gemini-assisted or auxiliary—implementation detail; must feed the same canonical representation)
 * Sentiment analysis models
 * Bias classification models
 
@@ -282,11 +307,14 @@ Agents **do not** each emit a separate chat stream to the user by default; the p
 * Entity extraction
 * Basic bias detection
 * Simple credibility scoring
+* **Gemini API** integrated with **Google AI Studio** workflow for core generation (§1.6)
 * Conversational output with **depolarized, uncertainty-aware** default tone (§1.5, §5.3)
 * **At least two specialized agents plus orchestration** (e.g. extraction/analysis → synthesis), with a defined shared schema for passing results—even if research agents are minimal stubs initially
+* **Multilingual path**: at minimum, **one canonical structured state** for analysis and one delivery locale (expand languages iteratively)
 
 ## 8.2 Should Have
 
+* **Voice agent** fully aligned with Studio prompts and **same briefing object** as text (§1.6, §4.10)
 * Knowledge graph visualization
 * **Full parallel research agent pool** with orchestrator-driven escalation
 * Dashboard persistence
@@ -318,6 +346,7 @@ Agents **do not** each emit a separate chat stream to the user by default; the p
 * Performance overhead in real-time analysis
 * **Multi-agent inconsistency**: without a strong shared schema and merge rules, agents may produce conflicting scores or duplicate verification; orchestrator and synthesis must resolve or surface uncertainty explicitly
 * **False certainty / polarizing tone**: models may overstate confidence or echo partisan framing; **copy standards, synthesis prompts, and evals** must enforce §1.5 (depolarized, evidence-weighted, no “this is correct” by default)
+* **Vendor / API dependency**: core reasoning and voice are tied to **Google AI Studio / Gemini** (§1.6); outages, quota, or policy changes require **graceful degradation** and clear user messaging
 
 ---
 

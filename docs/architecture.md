@@ -1,6 +1,8 @@
 # Real-Time Multimodal Intelligence Agent — End-to-End Architecture
 
-This diagram reflects the system described in [`PDR.md`](./PDR.md): entry points → ingestion → orchestrator → specialized agents → shared structured context → synthesis → user-facing output, with persistence and model dependencies. Synthesis defaults to a **depolarized, evidence-aware briefing** (see PDR §1.5), not a single authoritative “correct” answer.
+This diagram reflects the system described in [`PDR.md`](./PDR.md): entry points → ingestion → **multilingual canonicalization** → orchestrator → specialized agents → shared structured context → **Gemini-backed** synthesis → user-facing output (text **and** voice from the **same** briefing). Synthesis defaults to a **depolarized, evidence-aware briefing** (PDR §1.5), not a single authoritative “correct” answer.
+
+**API stack**: prompts and keys are managed in [Google AI Studio](https://aistudio.google.com/prompts/new_chat); production uses the **Gemini API** aligned with that configuration (PDR §1.6).
 
 ```mermaid
 flowchart TB
@@ -11,7 +13,11 @@ flowchart TB
   end
 
   subgraph Ingestion["Ingestion layer"]
-    ING[Normalize content<br/>web · PDF · video transcript · audio]
+    ING[Normalize content · provenance<br/>web · PDF · video transcript · audio]
+  end
+
+  subgraph I18n["Multilingual canonicalization"]
+    LANG[Language detect · align spans<br/>→ one language-agnostic structured state]
   end
 
   subgraph Orch["Multi-agent orchestrator"]
@@ -19,7 +25,7 @@ flowchart TB
   end
 
   subgraph Shared["Shared structured context"]
-    MEM[(Working memory:<br/>claims · entity IDs · scores · evidence IDs · open questions)]
+    MEM[(Working memory · canonical:<br/>claims · entity IDs · scores · evidence IDs · open questions)]
   end
 
   subgraph Agents["Specialized agents"]
@@ -32,28 +38,34 @@ flowchart TB
     SYN[Synthesis / output agent<br/>depolarized briefing · uncertainty · citations]
   end
 
+  subgraph GeminiStack["Google AI Studio · Gemini API"]
+    STUDIO[AI Studio: prompts · models · keys · eval]
+    GAPI[Gemini API · runtime generation]
+    VA[Voice agent · speech I/O<br/>same briefing as text · Studio-aligned]
+  end
+
   subgraph Stores["Persistence & intelligence"]
     KG[(Knowledge graph store)]
     DASH[(Dashboard memory<br/>entities · topics · bias patterns · interests)]
   end
 
-  subgraph Models["AI/ML stack"]
-    LLM[LLM · reasoning]
-    NER_M[NER models]
+  subgraph AuxModels["Auxiliary models"]
+    NER_M[NER / classifiers as needed]
     SENT[Sentiment / framing classifiers]
     RAG[RAG / retrieval]
   end
 
   subgraph Output["User-visible output"]
-    UI[Structured UI:<br/>depolarized summary · framing signals · evidence · entities · gaps · next reads]
-    VOICE[Voice-first layer]
+    UI[Structured UI · locale at render time]
+    VOICE[Spoken delivery · user locale]
   end
 
   EXT --> ING
   CHAT --> ING
   API --> ING
 
-  ING --> ORC
+  ING --> LANG
+  LANG --> ORC
 
   ORC <-->|read/write| MEM
   ORC --> EXT_AG
@@ -71,20 +83,26 @@ flowchart TB
   GRAPH_AG <--> KG
   UI <--> DASH
 
+  STUDIO -.->|versioned config| GAPI
+  SYN & RES_POOL & CRED_AG & VA -.-> GAPI
   EXT_AG -.-> NER_M
   BIAS_AG -.-> SENT
-  CRED_AG & RES_POOL & SYN -.-> LLM
   RES_POOL -.-> RAG
 
-  SYN -->|one merged briefing| UI
-  SYN --> VOICE
+  SYN -->|one merged briefing object| UI
+  SYN -->|same object| VA
+  VA --> VOICE
+  GAPI -.-> VA
 
   ORC -.->|low confidence · conflicts · high-impact claims| RES_POOL
 ```
 
+> **Note:** Mermaid node text is plain; the Studio URL is also documented in this file’s intro and in PDR §1.6. In diagrams that do not support HTML links, refer to **Google AI Studio → Prompts (new chat)**.
+
 ## Legend
 
-- **Solid arrows**: primary data and orchestration paths (ingest → fan-out → merge → synthesis).
-- **Dotted arrows**: model/tool usage and orchestrator **escalation** to research agents when confidence is low, claims conflict, or impact is high.
-- **Shared structured context**: agents coordinate through a common representation (claims, entities, scores, evidence) rather than separate ad-hoc streams to the user.
+- **Solid arrows**: primary data and orchestration paths (ingest → **canonicalize** → fan-out → merge → synthesis).
+- **Dotted arrows**: model/API usage (Gemini API, auxiliary models) and orchestrator **escalation** to research agents.
+- **Shared structured context**: one **language-agnostic** representation after `LANG` so cross-language evidence merges before synthesis (PDR §1.6).
+- **Gemini stack**: Studio is for **development and configuration**; **GAPI** is **runtime**. **Voice agent** uses the **same** merged briefing as the UI; locale is applied at **render / speak** time.
 - **Epistemic stance**: merged output is framed as **analysis with limits**, not infallible truth (PDR §1.5).
