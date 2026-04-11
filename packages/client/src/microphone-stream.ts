@@ -16,7 +16,17 @@ export async function attachMicrophoneToLiveSession(
   options?: AttachMicOptions,
 ): Promise<() => void> {
   const audioContext = new AudioContext();
-  await audioContext.resume();
+  async function ensureRunning() {
+    if (audioContext.state === "suspended") {
+      await audioContext.resume();
+    }
+  }
+  await ensureRunning();
+  audioContext.addEventListener("statechange", () => {
+    if (audioContext.state === "suspended") {
+      void ensureRunning();
+    }
+  });
 
   const source = audioContext.createMediaStreamSource(stream);
   const processor = audioContext.createScriptProcessor(4096, 1, 1);

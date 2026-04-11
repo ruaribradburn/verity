@@ -24,6 +24,8 @@ export type LiveSessionSnapshot = {
 export type LiveSessionManager = {
   connect(page: PageContext): Promise<void>;
   sendText(text: string): void;
+  /** Injects background context (e.g. research results) without ending the user turn. */
+  sendContext(text: string): void;
   sendAudioChunk(base64Pcm16: string): void;
   sendAudioStreamEnd(): void;
   sendVideoFrame(base64Jpeg: string): void;
@@ -257,23 +259,25 @@ export function createLiveSessionManager(options: ManagerOptions): LiveSessionMa
             emitSnapshot();
           },
           onclose: (event) => {
+            const code = event?.code ?? 1000;
+            const reason = typeof event?.reason === "string" ? event.reason : "";
+            const wasClean = event?.wasClean ?? true;
             console.log(
               "[verity/live] Gemini Live WebSocket closed",
-              `code=${event.code}`,
-              `reason=${event.reason || "none"}`,
-              `wasClean=${event.wasClean}`,
+              `code=${code}`,
+              `reason=${reason || "none"}`,
+              `wasClean=${wasClean}`,
             );
-            setupComplete.reject(
-              new Error(
-                `Gemini Live closed (code ${event.code}${event.reason ? `: ${event.reason}` : ""}).`,
-              ),
-            );
+            queue.clear();
             session = null;
             state = "disconnected";
             lastError =
-              event.code === 1000 && !event.reason
+              code === 1000 && !reason
                 ? null
-                : `Gemini Live disconnected (code ${event.code}${event.reason ? `: ${event.reason}` : ""}).`;
+                : `Gemini Live disconnected (code ${code}${reason ? `: ${reason}` : ""}).`;
+            setupComplete.reject(
+              new Error(`Gemini Live closed (code ${code}${reason ? `: ${reason}` : ""}).`),
+            );
             emitSnapshot();
           },
         },
@@ -294,6 +298,17 @@ export function createLiveSessionManager(options: ManagerOptions): LiveSessionMa
       state = "processing";
       partialAssistantTranscript = "";
       session.sendRealtimeInput({ text });
+      emitSnapshot();
+    },
+
+    sendContext(text) {
+      if (!session) {
+        throw new Error("Live session is not connected.");
+      }
+      session.sendClientContent({
+        turns: [{ role: "user", parts: [{ text }] }],
+        turnComplete: false,
+      });
       emitSnapshot();
     },
 

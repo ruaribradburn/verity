@@ -42,6 +42,7 @@ The extension path is deliberately thin:
 - `bun run dev:web`: run only the Next.js app in `packages/web`
 - `bun run dev:api`: run only the Hono API in `packages/api`
 - `bun run check-types`: run all workspace TypeScript checks
+- `bun run setup:trafilatura`: install the Python `trafilatura` package (required for `/page/context` article text). Needs `python3` on PATH; on macOS without it: `brew install python`, then run this again
 - `bun run lint`: run ESLint from the repo root
 - `bun run build`: build the web app
 
@@ -52,7 +53,7 @@ The extension path is deliberately thin:
 - `WEB_PORT` and `API_PORT` must differ.
 - `NEXT_PUBLIC_API_ORIGIN` is used by the browser client when it needs to call the API directly.
 - The Chrome extension uses `Origin: chrome-extension://…`; `packages/api` allows those origins for local development so `fetch` to `http://127.0.0.1:3001` succeeds.
-- `PYTHON_BIN` overrides the interpreter for `scripts/trafilatura_extract.py` (defaults to `python3` on macOS/Linux, `python` on Windows). Install deps: `python3 -m pip install trafilatura`.
+- Page extraction tries `python3` then `python` on macOS/Linux, and `python` then `python3` on Windows, unless `PYTHON_BIN` is set. Install the Python dependency with **`bun run setup:trafilatura`** (uses `scripts/requirements.txt`) or manually: `python3 -m pip install -r scripts/requirements.txt`. **Brew** installs Python (`brew install python`), not the pip package; **bun** runs our installer script but does not replace pip for trafilatura.
 
 ## Product plans (superpowers)
 

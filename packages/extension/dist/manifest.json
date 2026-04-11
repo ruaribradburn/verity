@@ -20,7 +20,8 @@
     "activeTab",
     "search",
     "alarms",
-    "tabGroups"
+    "tabGroups",
+    "audioCapture"
   ],
   "host_permissions": [
     "http://127.0.0.1:3001/*",
