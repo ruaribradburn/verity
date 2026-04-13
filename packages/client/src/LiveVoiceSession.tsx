@@ -14,7 +14,7 @@ import { createScreenShareHandle } from "./screen-share";
 import { SessionHeader } from "./components/LiveSession/SessionHeader";
 import { SessionHero } from "./components/LiveSession/SessionHero";
 import { TranscriptView } from "./components/LiveSession/TranscriptView";
-import { ComposeBar } from "./components/LiveSession/ComposeBar";
+import { SessionFooter } from "./components/LiveSession/SessionFooter";
 import { SettingsOverlay } from "./components/LiveSession/SettingsOverlay";
 
 export type LiveInlineCard = {
@@ -89,13 +89,13 @@ export function LiveVoiceSession({
   const [liveConfig, setLiveConfig] = useState<LiveConfigHttpResponse | null>(null);
   const [snapshot, setSnapshot] = useState<LiveSessionSnapshot>(snapshotRef.current);
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
-  const [typedInput, setTypedInput] = useState("");
   const [pageUrl, setPageUrl] = useState(initialPageUrl || "");
   const [pageTitle, setPageTitle] = useState(initialPageTitle || "");
   const [starting, setStarting] = useState(false);
   const [composeOpen, setComposeOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
+  const isMutedRef = useRef(isMuted);
   const [currentFrame, setCurrentFrame] = useState<string | null>(null);
   
   // Settings Overlay State
@@ -104,6 +104,10 @@ export function LiveVoiceSession({
   const [localAccent, setLocalAccent] = useState("");
   const [localStyle, setLocalStyle] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    isMutedRef.current = isMuted;
+  }, [isMuted]);
 
   useEffect(() => {
     setPageUrl(u => u || initialPageUrl || "");
@@ -177,7 +181,7 @@ export function LiveVoiceSession({
       });
       micStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
       micCleanupRef.current = await attachMicrophoneToLiveSession(manager, micStream, {
-        shouldSend: () => managerRef.current != null && !isMuted,
+        shouldSend: () => managerRef.current != null && !isMutedRef.current,
       });
 
       if (hydrated.page.url !== INITIAL_PAGE.url) setPageUrl(hydrated.page.url);
@@ -198,15 +202,9 @@ export function LiveVoiceSession({
     playbackAudioContextRef.current?.close().catch(() => {}); playbackAudioContextRef.current = null;
     managerRef.current?.close(); managerRef.current = null;
     playbackCursorRef.current = 0;
+    setTranscript([]);
     setCurrentFrame(null);
     setSnapshot(prev => ({ ...prev, isConnected: false, state: "disconnected" }));
-  }
-
-  function handleSendTyped() {
-    if (!typedInput.trim() || !managerRef.current) return;
-    managerRef.current.sendText(typedInput.trim());
-    setTranscript(curr => [...curr, { id: `t-${Date.now()}`, role: "user", text: typedInput.trim(), meta: "typed" }]);
-    setTypedInput("");
   }
 
   async function saveSettings() {
@@ -240,7 +238,7 @@ export function LiveVoiceSession({
   const isIdle = !isConnected && !starting && transcript.length === 0;
 
   return (
-    <main className="flex h-screen flex-col overflow-hidden text-[var(--foreground)] bg-[var(--background)]">
+    <main className="relative flex h-full flex-col overflow-hidden text-[var(--foreground)] bg-[var(--background)]">
       
       <SessionHeader 
         isConnected={isConnected}
@@ -263,16 +261,10 @@ export function LiveVoiceSession({
             partialAssistantTranscript={snapshot.partialAssistantTranscript}
           />
           
-          <ComposeBar 
-            composeOpen={composeOpen}
-            setComposeOpen={setComposeOpen}
-            typedInput={typedInput}
-            setTypedInput={setTypedInput}
+          <SessionFooter 
             isConnected={isConnected}
-            onSend={handleSendTyped}
             onEnd={stopSession}
             currentFrame={currentFrame}
-            lastError={snapshot.lastError}
           />
         </>
       )}

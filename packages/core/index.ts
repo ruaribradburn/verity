@@ -272,7 +272,7 @@ export function createFixtureRequests(): Record<string, AnalysisRequest> {
 export function resolveLiveSessionSettings(env: Record<string, string | undefined>): LiveSessionSettings {
   return {
     voiceName: env.GEMINI_LIVE_VOICE || "Erinome",
-    speechLanguageCode: env.GEMINI_LIVE_SPEECH_LANGUAGE_CODE || "en-GB",
+    speechLanguageCode: env.GEMINI_LIVE_SPEECH_LANGUAGE_CODE || "en-US",
     temperature: parseFloat(env.GEMINI_LIVE_TEMPERATURE || "0.55"),
     topP: env.GEMINI_LIVE_TOP_P ? parseFloat(env.GEMINI_LIVE_TOP_P) : undefined,
     topK: env.GEMINI_LIVE_TOP_K ? parseInt(env.GEMINI_LIVE_TOP_K, 10) : undefined,
@@ -285,7 +285,7 @@ export function resolveLiveSessionSettings(env: Record<string, string | undefine
 export function createLiveConfigSummary(settings?: LiveSessionSettings): LiveConfigSummary {
   const s = settings ?? {
     voiceName: "Erinome",
-    speechLanguageCode: "en-GB",
+    speechLanguageCode: "en-US",
     temperature: 0.55,
     affectiveDialog: true,
   };

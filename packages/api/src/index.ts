@@ -414,6 +414,13 @@ app.post("/live/token", async (c) => {
           model: GEMINI_LIVE_MODEL,
           config: {
             responseModalities: [Modality.AUDIO],
+            speechConfig: {
+              voiceConfig: {
+                prebuiltVoiceConfig: {
+                  voiceName: liveSettings.voiceName,
+                },
+              },
+            },
             temperature: liveSettings.temperature,
             topP: liveSettings.topP,
             topK: liveSettings.topK,

@@ -266,8 +266,8 @@ export function createLiveSessionManager(options: ManagerOptions): LiveSessionMa
             topP: liveConfig.topP,
             topK: liveConfig.topK,
           },
-          inputAudioTranscription: {},
-          outputAudioTranscription: {},
+          inputAudioTranscription: { languageCode: liveConfig.speechLanguageCode },
+          outputAudioTranscription: { languageCode: liveConfig.speechLanguageCode },
           realtimeInputConfig: {
             automaticActivityDetection: {
               disabled: liveConfig.realtimeInputConfig.automaticActivityDetectionDisabled,
