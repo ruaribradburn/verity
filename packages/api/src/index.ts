@@ -1,4 +1,6 @@
 import { spawn } from "node:child_process";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { serve } from "@hono/node-server";
 import { GoogleGenAI, Modality } from "@google/genai";
@@ -14,6 +16,7 @@ import {
   createFixtureRequests,
   createLiveConfigSummary,
   resolveGeminiApiKey,
+  resolveLiveSessionSettings,
   runFixtureAssertions,
   type Claim,
   type Entity,
@@ -275,6 +278,37 @@ const app = new Hono();
 const allowedOrigins = parseCorsOrigins(process.env.WEB_ORIGIN);
 const geminiApiKey = resolveGeminiApiKey(process.env);
 
+// Load prompt overrides from filesystem if present
+const __filename = fileURLToPath(import.meta.url);
+const rootDir = resolve(dirname(__filename), "../../../"); // packages/api/src -> packages/api -> packages -> root
+const accentPath = join(rootDir, "prompts", "accent.md");
+const stylePath = join(rootDir, "prompts", "style.md");
+
+const liveSettings = resolveLiveSessionSettings(process.env);
+
+if (existsSync(accentPath)) {
+  const content = readFileSync(accentPath, "utf-8").trim();
+  if (content) {
+    console.log("[verity/api] Loading speech style override from:", accentPath);
+    liveSettings.speechStylePrompt = content;
+  }
+}
+
+if (existsSync(stylePath)) {
+  const content = readFileSync(stylePath, "utf-8").trim();
+  if (content) {
+    console.log("[verity/api] Loading personality override from:", stylePath);
+    liveSettings.personalityPrompt = content;
+  }
+}
+
+console.log("[verity/api] Gemini Live settings initialized:", {
+  voice: liveSettings.voiceName,
+  temp: liveSettings.temperature,
+  hasSpeechStyle: Boolean(liveSettings.speechStylePrompt),
+  hasPersonality: Boolean(liveSettings.personalityPrompt),
+});
+
 app.use(
   "/*",
   cors({
@@ -306,11 +340,50 @@ app.get("/live/config", (c) => {
   console.log("[verity/api] GET /live/config from origin:", c.req.header("origin") ?? "none");
   const body: LiveConfigHttpResponse = {
     ok: true,
-    live: createLiveConfigSummary(),
+    live: createLiveConfigSummary(liveSettings),
     hasServerKey: Boolean(geminiApiKey),
     tokenEndpoint: "/live/token",
   };
   return c.json(body);
+});
+
+app.post("/live/config", async (c) => {
+  try {
+    const update = await c.req.json();
+    
+    if (update.voiceName) liveSettings.voiceName = update.voiceName;
+    if (typeof update.temperature === "number") liveSettings.temperature = update.temperature;
+    if (typeof update.topP === "number") liveSettings.topP = update.topP;
+    
+    if (typeof update.speechStylePrompt === "string") {
+      liveSettings.speechStylePrompt = update.speechStylePrompt;
+      try {
+        writeFileSync(accentPath, update.speechStylePrompt, "utf-8");
+      } catch (e) {
+        console.error("[verity/api] Failed to save accent.md:", e);
+      }
+    }
+    
+    if (typeof update.personalityPrompt === "string") {
+      liveSettings.personalityPrompt = update.personalityPrompt;
+      try {
+        writeFileSync(stylePath, update.personalityPrompt, "utf-8");
+      } catch (e) {
+        console.error("[verity/api] Failed to save style.md:", e);
+      }
+    }
+
+    console.log("[verity/api] Settings updated via POST:", {
+      voice: liveSettings.voiceName,
+      temp: liveSettings.temperature,
+      hasSpeechStyle: Boolean(liveSettings.speechStylePrompt),
+      hasPersonality: Boolean(liveSettings.personalityPrompt),
+    });
+
+    return c.json({ ok: true, settings: createLiveConfigSummary(liveSettings) });
+  } catch (error) {
+    return c.json({ ok: false, error: error instanceof Error ? error.message : "Update failed" }, 400);
+  }
 });
 
 app.post("/live/token", async (c) => {
@@ -341,7 +414,9 @@ app.post("/live/token", async (c) => {
           model: GEMINI_LIVE_MODEL,
           config: {
             responseModalities: [Modality.AUDIO],
-            temperature: 0.7,
+            temperature: liveSettings.temperature,
+            topP: liveSettings.topP,
+            topK: liveSettings.topK,
           },
         },
       },

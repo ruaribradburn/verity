@@ -2,10 +2,29 @@ export const APP_WORKSPACE = "packages/core" as const;
 export const API_DEFAULT_PORT = 3001 as const;
 export const GEMINI_LIVE_MODEL = "gemini-3.1-flash-live-preview" as const;
 export const GEMINI_LIVE_API_VERSION = "v1alpha" as const;
-export const GEMINI_LIVE_VOICE = "Erinome" as const;
-export const GEMINI_LIVE_SPEECH_LANGUAGE_CODE = "en-GB" as const;
-export const GEMINI_LIVE_TEMPERATURE = 0.55 as const;
-export const GEMINI_LIVE_AFFECTIVE_DIALOG = true as const;
+
+/** 
+ * Settings for the Gemini Live Multimodal session.
+ * These affect how the model perceives its identity, how it speaks, and its sampling parameters.
+ */
+export type LiveSessionSettings = {
+  /** The name of the prebuilt voice to use (e.g., 'Erinome', 'Puck', 'Charon'). */
+  voiceName: string;
+  /** BCP-47 language code for speech recognition and synthesis (e.g., 'en-GB'). */
+  speechLanguageCode: string;
+  /** Controls randomness. Lower values are more deterministic. Range: 0.0 - 2.0. */
+  temperature: number;
+  /** Nucleus sampling: probability mass to consider. Range: 0.0 - 1.0. */
+  topP?: number;
+  /** Only consider the top K tokens for sampling. */
+  topK?: number;
+  /** Whether to enable natural emotional prosody in the voice. */
+  affectiveDialog: boolean;
+  /** Instructions specifically about speech patterns, accents, and vocal style. */
+  speechStylePrompt?: string;
+  /** Instructions about the model's personality, behavior, and underlying persona. */
+  personalityPrompt?: string;
+};
 
 export type SessionState =
   | "disconnected"
@@ -66,10 +85,14 @@ export type LiveConfigSummary = {
   browserAuth: "ephemeral-token";
   serverKeyEnvVar: "GEMINI_API_KEY";
   thinkingLevel: "minimal";
-  voiceName: typeof GEMINI_LIVE_VOICE;
-  speechLanguageCode: typeof GEMINI_LIVE_SPEECH_LANGUAGE_CODE;
-  temperature: typeof GEMINI_LIVE_TEMPERATURE;
-  affectiveDialog: typeof GEMINI_LIVE_AFFECTIVE_DIALOG;
+  voiceName: string;
+  speechLanguageCode: string;
+  temperature: number;
+  topP?: number;
+  topK?: number;
+  affectiveDialog: boolean;
+  speechStylePrompt?: string;
+  personalityPrompt?: string;
   maxVideoFramesPerSecond: 1;
   toolsMustBeDeclaredAtConnectTime: true;
   sessionResumption: {
@@ -246,7 +269,27 @@ export function createFixtureRequests(): Record<string, AnalysisRequest> {
   };
 }
 
-export function createLiveConfigSummary(): LiveConfigSummary {
+export function resolveLiveSessionSettings(env: Record<string, string | undefined>): LiveSessionSettings {
+  return {
+    voiceName: env.GEMINI_LIVE_VOICE || "Erinome",
+    speechLanguageCode: env.GEMINI_LIVE_SPEECH_LANGUAGE_CODE || "en-GB",
+    temperature: parseFloat(env.GEMINI_LIVE_TEMPERATURE || "0.55"),
+    topP: env.GEMINI_LIVE_TOP_P ? parseFloat(env.GEMINI_LIVE_TOP_P) : undefined,
+    topK: env.GEMINI_LIVE_TOP_K ? parseInt(env.GEMINI_LIVE_TOP_K, 10) : undefined,
+    affectiveDialog: env.GEMINI_LIVE_AFFECTIVE_DIALOG !== "false",
+    speechStylePrompt: env.GEMINI_LIVE_SPEECH_STYLE_PROMPT,
+    personalityPrompt: env.GEMINI_LIVE_PERSONALITY_PROMPT,
+  };
+}
+
+export function createLiveConfigSummary(settings?: LiveSessionSettings): LiveConfigSummary {
+  const s = settings ?? {
+    voiceName: "Erinome",
+    speechLanguageCode: "en-GB",
+    temperature: 0.55,
+    affectiveDialog: true,
+  };
+
   return {
     model: GEMINI_LIVE_MODEL,
     apiVersion: GEMINI_LIVE_API_VERSION,
@@ -257,10 +300,14 @@ export function createLiveConfigSummary(): LiveConfigSummary {
     browserAuth: "ephemeral-token",
     serverKeyEnvVar: "GEMINI_API_KEY",
     thinkingLevel: "minimal",
-    voiceName: GEMINI_LIVE_VOICE,
-    speechLanguageCode: GEMINI_LIVE_SPEECH_LANGUAGE_CODE,
-    temperature: GEMINI_LIVE_TEMPERATURE,
-    affectiveDialog: GEMINI_LIVE_AFFECTIVE_DIALOG,
+    voiceName: s.voiceName,
+    speechLanguageCode: s.speechLanguageCode,
+    temperature: s.temperature,
+    topP: s.topP,
+    topK: s.topK,
+    affectiveDialog: s.affectiveDialog,
+    speechStylePrompt: s.speechStylePrompt,
+    personalityPrompt: s.personalityPrompt,
     maxVideoFramesPerSecond: 1,
     toolsMustBeDeclaredAtConnectTime: true,
     sessionResumption: {
@@ -412,7 +459,7 @@ export function createResearchToolDeclarations(): LiveFunctionDeclaration[] {
   ];
 }
 
-export function buildLiveSystemInstruction(page: PageContext | null) {
+export function buildLiveSystemInstruction(page: PageContext | null, settings?: Partial<LiveSessionSettings>) {
   const pageContext = page
     ? [
         `Current page URL: ${page.url}`,
@@ -429,11 +476,13 @@ export function buildLiveSystemInstruction(page: PageContext | null) {
     `- ALWAYS call research tools immediately when the user mentions any article, news, page, topic, claim, person, or event. Do not talk about what you could do — do it.`,
     `- When you can see a page on screen, your FIRST action is to call research_topic with the article's main subject. Do not describe the article back to the user and then wait.`,
 
-    // ── Identity ──
+    // ── Identity & Style ──
     `You are Verity, a voice-first intelligence analyst. You exist to help people understand information clearly, without spin.`,
+    `Primary Voice Character: modern British RP — polished, calm, precise, lightly dry. Sound like a competent colleague giving a brief, not a presenter or an assistant. Never bubbly, breathy, or over-enthusiastic. Maintain British vocabulary and phrasing throughout.`,
+    settings?.speechStylePrompt ? `Vocal Character & Accent Overrides:\n${settings.speechStylePrompt}` : null,
 
-    // ── Voice ──
-    `Voice: modern British RP — polished, calm, precise, lightly dry. Sound like a competent colleague giving a brief, not a presenter or an assistant. Never bubbly, breathy, or over-enthusiastic. Maintain British vocabulary and phrasing throughout.`,
+    // ── Personality ──
+    settings?.personalityPrompt ? `Behavioral Persona & Cognitive Style:\n${settings.personalityPrompt}` : null,
 
     // ── Core loop ──
     `Core loop — for every user input, follow this sequence:`,
@@ -459,7 +508,7 @@ export function buildLiveSystemInstruction(page: PageContext | null) {
 
     // ── Page context ──
     pageContext,
-  ].join("\n\n");
+  ].filter(Boolean).join("\n\n");
 }
 
 export function buildLivePageSeed(page: PageContext) {

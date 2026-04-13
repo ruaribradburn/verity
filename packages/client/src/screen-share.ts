@@ -2,7 +2,7 @@ import type { LiveSessionManager } from "./live-session";
 
 export type ScreenShareHandle = {
   captureFrame(): string | null;
-  startStreaming(manager: LiveSessionManager): void;
+  startStreaming(manager: LiveSessionManager, onFrame?: (base64: string) => void): void;
   stop(): void;
 };
 
@@ -62,16 +62,18 @@ export async function createScreenShareHandle(): Promise<ScreenShareHandle> {
     captureFrame() {
       return captureFrame() ?? null;
     },
-    startStreaming(manager) {
+    startStreaming(manager, onFrame) {
       const initialFrame = captureFrame();
       if (initialFrame) {
         manager.sendVideoFrame(initialFrame);
+        onFrame?.(initialFrame);
       }
 
       interval = window.setInterval(() => {
         const frame = captureFrame();
         if (frame) {
           manager.sendVideoFrame(frame);
+          onFrame?.(frame);
         }
       }, 1000);
     },

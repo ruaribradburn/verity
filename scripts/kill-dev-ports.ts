@@ -48,6 +48,40 @@ function sleepMs(ms: number): void {
 
 function killListenersOnPort(port: number): void {
   const platform = process.platform;
+  
+  if (platform === "win32") {
+    let output = "";
+    try {
+      output = execSync(`netstat -ano | findstr :${port} | findstr LISTENING`, {
+        encoding: "utf8",
+        stdio: ["pipe", "pipe", "pipe"],
+      }).trim();
+    } catch {
+      return;
+    }
+
+    if (!output) return;
+
+    // netstat output lines look like: TCP    0.0.0.0:3001           0.0.0.0:0              LISTENING       1234
+    const pids = [...new Set(
+      output.split("\n")
+        .map(line => line.trim().split(/\s+/).pop())
+        .filter(Boolean)
+    )];
+
+    if (pids.length === 0) return;
+    console.log(`[kill-dev-ports] freeing :${port} (PID(s): ${pids.join(", ")})`);
+
+    for (const pid of pids) {
+      try {
+        execSync(`taskkill /F /PID ${pid}`, { stdio: "ignore" });
+      } catch {
+        /* ignore */
+      }
+    }
+    return;
+  }
+
   if (platform !== "darwin" && platform !== "linux") {
     console.warn(
       `[kill-dev-ports] skipping port ${port} on ${platform} (use Task Manager / netstat to free it)`,

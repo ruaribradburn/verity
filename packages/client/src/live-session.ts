@@ -7,7 +7,9 @@ import {
   buildLiveSystemInstruction,
   createLiveConfigSummary,
   createResearchToolDeclarations,
+  type LiveConfigHttpResponse,
   type LiveTokenHttpResponse,
+  type LiveSessionSettings,
   type PageContext,
   type SessionState,
 } from "@packages/core";
@@ -114,6 +116,16 @@ export function createLiveSessionManager(options: ManagerOptions): LiveSessionMa
     });
   }
 
+  async function fetchLiveConfig() {
+    console.log("[verity/live] Fetching live config from:", `${options.apiOrigin}/live/config`);
+    const res = await fetch(`${options.apiOrigin}/live/config`);
+    const body = (await res.json()) as LiveConfigHttpResponse;
+    if (!res.ok || !body.ok) {
+      throw new Error("Failed to fetch live session configuration.");
+    }
+    return body.live;
+  }
+
   async function fetchEphemeralToken() {
     console.log("[verity/live] Fetching ephemeral token from:", `${options.apiOrigin}/live/token`);
     let res: Response;
@@ -216,55 +228,74 @@ export function createLiveSessionManager(options: ManagerOptions): LiveSessionMa
       lastError = null;
       emitSnapshot();
 
-      const token = await fetchEphemeralToken();
+      const [token, liveConfig] = await Promise.all([
+        fetchEphemeralToken(),
+        fetchLiveConfig(),
+      ]);
+
       const ai = new GoogleGenAI({
         apiKey: token.token,
         apiVersion: GEMINI_LIVE_API_VERSION,
       });
       const setupComplete = createDeferred<void>();
 
-      session = await ai.live.connect({
+      const connectConfig = {
         model: GEMINI_LIVE_MODEL,
         config: {
           responseModalities: [Modality.AUDIO],
           tools: [
             { googleSearch: {} },
-            // @ts-expect-error LiveFunctionDeclaration uses plain string types; the SDK expects its own Type enum but accepts strings at runtime.
-            { functionDeclarations: createResearchToolDeclarations() },
+            { functionDeclarations: createResearchToolDeclarations() as any },
           ],
           systemInstruction: {
-            parts: [{ text: buildLiveSystemInstruction(page) }],
+            parts: [{ text: (() => {
+              const instr = buildLiveSystemInstruction(page, liveConfig);
+              console.log("[verity/live] Final System Instruction:\n", instr);
+              return instr;
+            })() }],
           },
           speechConfig: {
-            languageCode: liveDefaults.speechLanguageCode,
             voiceConfig: {
               prebuiltVoiceConfig: {
-                voiceName: liveDefaults.voiceName,
+                voiceName: liveConfig.voiceName,
               },
             },
           },
-          temperature: liveDefaults.temperature,
+          generationConfig: {
+            temperature: liveConfig.temperature,
+            topP: liveConfig.topP,
+            topK: liveConfig.topK,
+          },
           inputAudioTranscription: {},
           outputAudioTranscription: {},
           realtimeInputConfig: {
             automaticActivityDetection: {
-              disabled: liveDefaults.realtimeInputConfig.automaticActivityDetectionDisabled,
-              prefixPaddingMs: liveDefaults.realtimeInputConfig.prefixPaddingMs,
-              silenceDurationMs: liveDefaults.realtimeInputConfig.silenceDurationMs,
+              disabled: liveConfig.realtimeInputConfig.automaticActivityDetectionDisabled,
+              prefixPaddingMs: liveConfig.realtimeInputConfig.prefixPaddingMs,
+              silenceDurationMs: liveConfig.realtimeInputConfig.silenceDurationMs,
             },
-            // @ts-expect-error Live API typings use a narrower enum than our shared LiveConfigSummary string.
-            activityHandling: liveDefaults.realtimeInputConfig.activityHandling,
+            activityHandling: liveConfig.realtimeInputConfig.activityHandling as any,
           },
           contextWindowCompression: {
             slidingWindow: {
-              // @ts-expect-error SDK types declare string but the Live API requires numeric values.
-              targetTokens: liveDefaults.contextWindowCompression.targetTokens,
+              targetTokens: liveConfig.contextWindowCompression.targetTokens as any,
             },
-            // @ts-expect-error SDK types declare string but the Live API requires numeric values.
-            triggerTokens: liveDefaults.contextWindowCompression.triggerTokens,
+            triggerTokens: liveConfig.contextWindowCompression.triggerTokens as any,
           },
           sessionResumption: resumeHandle ? { handle: resumeHandle } : undefined,
         },
+      };
+
+      console.log("[verity/live] Connecting with config:", {
+        model: connectConfig.model,
+        voice: connectConfig.config.speechConfig?.voiceConfig?.prebuiltVoiceConfig?.voiceName,
+        temp: connectConfig.config.generationConfig?.temperature,
+        topP: connectConfig.config.generationConfig?.topP,
+        hasSystemInstruction: true,
+      });
+
+      session = await ai.live.connect({
+        ...connectConfig,
         callbacks: {
           onopen: () => {
             console.log("[verity/live] Gemini Live WebSocket connected");
